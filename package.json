@@ -1,0 +1,20 @@
+{
+  "name": "chatbot-saas",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "web": "turbo run dev --filter=@chatbot/web",
+    "widget": "turbo run dev --filter=@chatbot/widget",
+    "api": "fuser -k 8000/tcp 2>/dev/null; cd apps/api && .venv/bin/uvicorn app.main:app --reload --port 8000",
+    "worker": "cd apps/api && .venv/bin/celery -A app.workers.celery_app worker -Q embeddings,default -c 2 --loglevel=info",
+    "build": "turbo build",
+    "lint": "turbo lint"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,15 @@
+import type { Metadata } from "next";
+import "./globals.css";
+
+export const metadata: Metadata = {
+  title: "ChatBot SaaS — AI Chat for Your Website",
+  description: "Add a smart AI chatbot to any website in 30 seconds",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body className="bg-gray-50 text-gray-900 antialiased">{children}</body>
+    </html>
+  );
+}
