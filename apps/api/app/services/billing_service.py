@@ -3,7 +3,6 @@ Dual-gateway billing service.
 India → Razorpay  |  International → Stripe
 """
 import stripe
-import razorpay
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -14,7 +13,10 @@ from app.models.subscription import Subscription, SubscriptionStatus, PaymentGat
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
-razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+
+def _get_razorpay_client():
+    import razorpay  # lazy import — razorpay uses pkg_resources which may not be available
+    return razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 STRIPE_PRICE_IDS = {
     "starter": settings.STRIPE_STARTER_PRICE_ID,
@@ -73,6 +75,7 @@ async def _razorpay_checkout(tenant: Tenant, plan: str, db: AsyncSession) -> tup
     if not plan_id:
         raise HTTPException(status_code=400, detail="Razorpay plan not configured")
 
+    razorpay_client = _get_razorpay_client()
     subscription = razorpay_client.subscription.create({
         "plan_id": plan_id,
         "customer_notify": 1,

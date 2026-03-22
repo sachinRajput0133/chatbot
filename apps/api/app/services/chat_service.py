@@ -1,12 +1,11 @@
 """
 RAG-powered chat service.
-Flow: embed query → pgvector similarity search → Claude response → store in DB
+Provider priority: groq → anthropic → openai → gemini → grok
+Embeddings: OpenAI if key set, otherwise falls back to keyword search.
 """
 import uuid
 from datetime import datetime, timezone
 
-import anthropic
-from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from fastapi import HTTPException
@@ -14,12 +13,8 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.core.redis import get_conversation_history, append_conversation_message
 from app.models.tenant import Tenant, Plan
-from app.models.knowledge import KnowledgeChunk
 from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.models.widget import WidgetConfig
-
-openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 PLAN_LIMITS = {
     Plan.free: 100,
@@ -34,35 +29,144 @@ If the answer is not in the context, say "I don't have that information. Please 
 Keep responses concise and friendly. Do not make up information."""
 
 
-async def _embed_query(query: str) -> list[float]:
-    response = await openai_client.embeddings.create(
-        model="text-embedding-3-small",
-        input=query,
+# ── Provider detection ─────────────────────────────────────────────────────────
+
+def _active_provider() -> str:
+    """Return whichever provider has a key set. Priority: groq → anthropic → openai → gemini → grok"""
+    if settings.GROQ_API_KEY:
+        return "groq"
+    if settings.ANTHROPIC_API_KEY:
+        return "anthropic"
+    if settings.OPENAI_API_KEY:
+        return "openai"
+    if settings.GEMINI_API_KEY:
+        return "gemini"
+    if settings.GROK_API_KEY:
+        return "grok"
+    raise HTTPException(
+        status_code=500,
+        detail="No AI provider key configured. Add GROQ_API_KEY or ANTHROPIC_API_KEY to .env"
     )
+
+
+async def _call_ai(messages: list[dict], system: str) -> tuple[str, int]:
+    """Call the active AI provider. Returns (reply, tokens_used)."""
+    provider = _active_provider()
+
+    if provider == "groq":
+        from groq import AsyncGroq
+        client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+        response = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "system", "content": system}] + messages,
+            max_tokens=1024,
+            temperature=0.3,
+        )
+        reply = response.choices[0].message.content or ""
+        tokens = response.usage.total_tokens if response.usage else 0
+        return reply, tokens
+
+    if provider == "anthropic":
+        import anthropic
+        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            system=system,
+            messages=messages,
+        )
+        reply = response.content[0].text
+        tokens = response.usage.input_tokens + response.usage.output_tokens
+        return reply, tokens
+
+    if provider == "openai":
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": system}] + messages,
+            max_tokens=1024,
+        )
+        reply = response.choices[0].message.content or ""
+        tokens = response.usage.total_tokens if response.usage else 0
+        return reply, tokens
+
+    if provider == "gemini":
+        import asyncio
+        import google.generativeai as genai
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        prompt = system + "\n\n" + "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+        response = await asyncio.to_thread(model.generate_content, prompt)
+        return response.text, 0
+
+    if provider == "grok":
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.GROK_API_KEY}", "Content-Type": "application/json"},
+                json={
+                    "model": "grok-3-mini",
+                    "messages": [{"role": "system", "content": system}] + messages,
+                    "max_tokens": 1024,
+                    "temperature": 0,
+                },
+            )
+            data = resp.json()
+        return data["choices"][0]["message"]["content"], 0
+
+    raise HTTPException(status_code=500, detail="No AI provider available")
+
+
+# ── Embeddings ─────────────────────────────────────────────────────────────────
+
+async def _embed_query(query: str) -> list[float] | None:
+    """Returns embedding vector or None if no OpenAI key (falls back to keyword search)."""
+    if not settings.OPENAI_API_KEY:
+        return None
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    response = await client.embeddings.create(model="text-embedding-3-small", input=query)
     return response.data[0].embedding
 
 
-async def _retrieve_chunks(tenant_id: uuid.UUID, embedding: list[float], db: AsyncSession, top_k: int = 5) -> list[str]:
-    """Cosine similarity search using pgvector."""
-    embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
-    result = await db.execute(
-        text("""
-            SELECT content
-            FROM knowledge_chunks
-            WHERE tenant_id = :tenant_id
-            ORDER BY embedding <=> :embedding::vector
-            LIMIT :top_k
-        """),
-        {"tenant_id": str(tenant_id), "embedding": embedding_str, "top_k": top_k},
-    )
+async def _retrieve_chunks(tenant_id: uuid.UUID, query: str, embedding: list[float] | None, db: AsyncSession) -> list[str]:
+    if embedding:
+        embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
+        result = await db.execute(
+            text("""
+                SELECT content FROM knowledge_chunks
+                WHERE tenant_id = :tenant_id
+                ORDER BY embedding <=> :embedding::vector
+                LIMIT 5
+            """),
+            {"tenant_id": str(tenant_id), "embedding": embedding_str},
+        )
+    else:
+        # Keyword search fallback when no OpenAI key
+        words = [w for w in query.lower().split() if len(w) > 3]
+        if not words:
+            return []
+        params: dict = {"tenant_id": str(tenant_id)}
+        params.update({f"w{i}": f"%{w}%" for i, w in enumerate(words[:5])})
+        result = await db.execute(
+            text(f"""
+                SELECT content FROM knowledge_chunks
+                WHERE tenant_id = :tenant_id
+                AND ({" OR ".join(f"LOWER(content) LIKE :w{i}" for i in range(len(words[:5])))})
+                LIMIT 5
+            """),
+            params,
+        )
     return [row[0] for row in result.fetchall()]
 
 
+# ── Conversation helpers ───────────────────────────────────────────────────────
+
 async def _get_or_create_conversation(
-    tenant_id: uuid.UUID,
-    visitor_id: str,
-    conversation_id: uuid.UUID | None,
-    page_url: str | None,
+    tenant_id: uuid.UUID, visitor_id: str,
+    conversation_id: uuid.UUID | None, page_url: str | None,
     db: AsyncSession,
 ) -> WebConversation:
     if conversation_id:
@@ -76,91 +180,51 @@ async def _get_or_create_conversation(
         if conv:
             conv.last_message_at = datetime.now(timezone.utc)
             return conv
-
-    conv = WebConversation(
-        tenant_id=tenant_id,
-        visitor_id=visitor_id,
-        page_url=page_url,
-    )
+    conv = WebConversation(tenant_id=tenant_id, visitor_id=visitor_id, page_url=page_url)
     db.add(conv)
     await db.flush()
     return conv
 
 
+# ── Main entry point ───────────────────────────────────────────────────────────
+
 async def handle_chat(
-    bot_id: uuid.UUID,
-    message: str,
-    visitor_id: str,
-    conversation_id: uuid.UUID | None,
-    page_url: str | None,
+    bot_id: uuid.UUID, message: str, visitor_id: str,
+    conversation_id: uuid.UUID | None, page_url: str | None,
     db: AsyncSession,
 ) -> tuple[str, uuid.UUID]:
-    # Load tenant by bot_id
+
     result = await db.execute(select(Tenant).where(Tenant.bot_id == bot_id))
     tenant = result.scalar_one_or_none()
     if not tenant or not tenant.is_active:
         raise HTTPException(status_code=404, detail="Bot not found")
 
-    # Enforce message quota
     limit = PLAN_LIMITS.get(tenant.plan, 100)
     if tenant.message_count_month >= limit:
-        raise HTTPException(
-            status_code=429,
-            detail="Monthly message limit reached. Please upgrade your plan.",
-        )
+        raise HTTPException(status_code=429, detail="Monthly message limit reached. Please upgrade your plan.")
 
-    # Get widget config for system prompt
     result = await db.execute(select(WidgetConfig).where(WidgetConfig.tenant_id == tenant.id))
     widget = result.scalar_one_or_none()
     system_prompt = (widget.system_prompt if widget and widget.system_prompt else None) or \
         DEFAULT_SYSTEM_PROMPT.format(business_name=tenant.business_name)
 
-    # Get or create conversation
     conv = await _get_or_create_conversation(tenant.id, visitor_id, conversation_id, page_url, db)
 
-    # Embed and retrieve context
     embedding = await _embed_query(message)
-    context_chunks = await _retrieve_chunks(tenant.id, embedding, db)
+    context_chunks = await _retrieve_chunks(tenant.id, message, embedding, db)
 
-    # Build messages
     history = await get_conversation_history(str(bot_id), visitor_id)
-
-    messages = []
-    if history:
-        messages.extend(history)
-    messages.append({"role": "user", "content": message})
-
+    messages = list(history) + [{"role": "user", "content": message}]
     context_text = "\n\n---\n\n".join(context_chunks) if context_chunks else "No relevant context found."
-
     full_system = f"{system_prompt}\n\n<context>\n{context_text}\n</context>"
 
-    # Call Claude haiku (fast + cheap)
-    response = anthropic_client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
-        system=full_system,
-        messages=messages,
-    )
-    reply = response.content[0].text
-    tokens_used = response.usage.input_tokens + response.usage.output_tokens
+    reply, tokens_used = await _call_ai(messages, full_system)
 
-    # Persist messages to DB
-    user_msg = WebMessage(conversation_id=conv.id, role=MessageRole.user, content=message)
-    assistant_msg = WebMessage(
-        conversation_id=conv.id,
-        role=MessageRole.assistant,
-        content=reply,
-        tokens_used=tokens_used,
-    )
-    db.add(user_msg)
-    db.add(assistant_msg)
-
-    # Update tenant message count
+    db.add(WebMessage(conversation_id=conv.id, role=MessageRole.user, content=message))
+    db.add(WebMessage(conversation_id=conv.id, role=MessageRole.assistant, content=reply, tokens_used=tokens_used))
     tenant.message_count_month += 1
-
     await db.commit()
 
-    # Update Redis memory
     await append_conversation_message(str(bot_id), visitor_id, "user", message)
     await append_conversation_message(str(bot_id), visitor_id, "assistant", reply)
 

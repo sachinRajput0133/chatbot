@@ -27,9 +27,12 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
 
-    # AI
-    ANTHROPIC_API_KEY: str
-    OPENAI_API_KEY: str
+    # AI — all optional, app uses whichever key is set
+    ANTHROPIC_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+    GROK_API_KEY: str = ""   # xAI Grok
 
     # Stripe (International)
     STRIPE_SECRET_KEY: str = ""
