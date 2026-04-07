@@ -5,7 +5,9 @@
     "dev": "turbo dev",
     "web": "turbo run dev --filter=@chatbot/web",
     "widget": "turbo run dev --filter=@chatbot/widget",
-    "api": "fuser -k 8000/tcp 2>/dev/null; cd apps/api && .venv/bin/uvicorn app.main:app --reload --port 8000",
+    "docker:up": "docker compose -f docker-compose.dev.yml up -d && docker compose -f docker-compose.dev.yml wait db redis 2>/dev/null || sleep 5",
+    "docker:down": "docker compose -f docker-compose.dev.yml down",
+    "api": "fuser -k 8000/tcp 2>/dev/null; docker compose -f docker-compose.dev.yml up -d; sleep 3; cd apps/api && .venv/bin/uvicorn app.main:app --reload --port 8000",
     "worker": "cd apps/api && .venv/bin/celery -A app.workers.celery_app worker -Q embeddings,default -c 2 --loglevel=info",
     "build": "turbo build",
     "lint": "turbo lint"

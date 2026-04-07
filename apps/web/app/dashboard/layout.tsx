@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { clearToken } from "@/lib/api";
+import { ChatbotWidget } from "@/app/components/ChatbotWidget";
+import { HelpChatWidget } from "@/app/components/HelpChatWidget";
 
 const NAV = [
   { href: "/dashboard", label: "Overview", icon: "📊" },
@@ -57,6 +59,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Main content */}
       <main className="flex-1 p-8 overflow-y-auto">{children}</main>
+
+      {/* Owner preview: load their own chatbot so they can test it (bottom-right) */}
+      <ChatbotWidget />
+      {/* Platform help bot for all dashboard users (bottom-left) */}
+      <HelpChatWidget />
     </div>
   );
 }

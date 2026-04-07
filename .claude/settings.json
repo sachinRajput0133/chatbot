@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python -c ':*)",
+      "Bash(.venv/bin/uvicorn app.main:app --reload --port 8000)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/signup -H 'Content-Type: application/json' -d '{\"email\":\"hello@mybusiness.com\",\"password\":\"MyPass123\",\"business_name\":\"My Business\",\"country\":\"IN\"}')",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"hello@mybusiness.com\",\"password\":\"MyPass123\"}')",
+      "Bash(curl -s http://localhost:8000/widget.js)",
+      "Bash(curl -s -X POST http://localhost:8000/api/chat/a3e07498-a4d3-4a21-a8e9-1fec04958a05 -H 'Content-Type: application/json' -d '{\"message\":\"How do I add the chatbot to my website?\",\"visitor_id\":\"test-visitor-1\",\"conversation_id\":null,\"page_url\":\"http://localhost:3000\"}')",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(.venv/bin/python -c \"from groq import AsyncGroq; print\\('groq OK'\\)\")",
+      "Bash(curl -s -X POST http://localhost:8000/api/chat/a3e07498-a4d3-4a21-a8e9-1fec04958a05 -H 'Content-Type: application/json' -d '{\"message\":\"What about React websites?\",\"visitor_id\":\"test-visitor-1\",\"conversation_id\":\"3730c637-5e61-4066-9785-453a76a426fb\",\"page_url\":\"http://localhost:3000\"}')",
+      "Bash(python3 -c \"import sys,json; print\\(json.load\\(sys.stdin\\)['reply']\\)\")",
+      "Bash(pnpm run:*)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(.venv/bin/python -c \"from app.main import app; print\\('Import OK'\\)\")",
+      "Bash(curl -s http://localhost:8000/api/platform/config)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/signup -H 'Content-Type: application/json' -d '{\"email\":\"user@example.com\",\"password\":\"Test123!\",\"business_name\":\"Acme Co\",\"country\":\"US\"}')",
+      "Bash(.venv/bin/python -c \"from app.workers.embedding_worker import _process_document_async; print\\('OK'\\)\")"
+    ]
+  }
+}

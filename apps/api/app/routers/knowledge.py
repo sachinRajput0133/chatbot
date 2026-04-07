@@ -1,13 +1,12 @@
 import uuid
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user_id
 from app.schemas.knowledge import DocumentOut, ManualKnowledgeRequest
-from app.schemas.auth import TenantOut
 from app.services import knowledge_service, auth_service
-from app.workers.embedding_worker import process_document
+from app.workers.embedding_worker import _process_document_async
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -19,6 +18,7 @@ async def _get_tenant(user_id: str, db: AsyncSession):
 
 @router.post("/upload", response_model=DocumentOut)
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
@@ -32,14 +32,14 @@ async def upload_document(
         doc_type=doc_type,
         db=db,
     )
-    # Trigger Celery worker
-    process_document.delay(str(doc.id))
+    background_tasks.add_task(_process_document_async, str(doc.id))
     return doc
 
 
 @router.post("/manual", response_model=DocumentOut)
 async def add_manual_knowledge(
     data: ManualKnowledgeRequest,
+    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -50,7 +50,7 @@ async def add_manual_knowledge(
         content=data.content,
         db=db,
     )
-    process_document.delay(str(doc.id))
+    background_tasks.add_task(_process_document_async, str(doc.id))
     return doc
 
 

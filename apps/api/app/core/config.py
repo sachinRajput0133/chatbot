@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "/app/uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
 
+    # Platform admin — powers the in-dashboard help chatbot
+    PLATFORM_ADMIN_EMAIL: str = "admin@chatbot.platform"
+    PLATFORM_ADMIN_PASSWORD: str = "Admin@SecurePass123"
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",")]

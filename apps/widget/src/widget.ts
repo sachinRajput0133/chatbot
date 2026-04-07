@@ -27,6 +27,10 @@ declare global {
 }
 
 (function () {
+  // Prevent double-init (React Strict Mode / multiple script loads)
+  if ((window as any).__cb_loaded) return;
+  (window as any).__cb_loaded = true;
+
   const config: ChatbotConfig = window.ChatbotConfig;
   if (!config || !config.botId) {
     console.warn("[Chatbot] Missing ChatbotConfig.botId");
@@ -289,4 +293,11 @@ declare global {
   } else {
     init();
   }
+
+  // Allow cleanup & reinit (used by dashboard's ChatbotWidget component)
+  (window as any).__cb_destroy = () => {
+    document.getElementById("cb-widget")?.remove();
+    delete (window as any).__cb_loaded;
+    delete (window as any).__cb_destroy;
+  };
 })();

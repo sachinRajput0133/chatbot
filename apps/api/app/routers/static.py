@@ -18,7 +18,7 @@ async def serve_widget():
         return FileResponse(
             str(WIDGET_PATH),
             media_type="application/javascript",
-            headers={"Cache-Control": "public, max-age=300"},
+            headers={"Cache-Control": "no-cache"},
         )
     return Response(
         content="console.warn('[Chatbot] Widget not built yet.');",

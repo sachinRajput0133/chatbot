@@ -32,10 +32,14 @@ def _extract_text(file_path: str, file_type: DocumentType) -> str:
         return Path(file_path).read_text(encoding="utf-8")
 
 
-def _embed_texts(texts: list[str]) -> list[list[float]]:
-    """Batch embed texts using OpenAI text-embedding-3-small."""
+def _embed_texts(texts: list[str]) -> list[list[float] | None]:
+    """Batch embed texts using OpenAI text-embedding-3-small.
+    Returns list of None if no OpenAI key — chat service falls back to keyword search."""
+    if not settings.OPENAI_API_KEY:
+        return [None] * len(texts)
+
     BATCH_SIZE = 100
-    embeddings = []
+    embeddings: list[list[float] | None] = []
     for i in range(0, len(texts), BATCH_SIZE):
         batch = texts[i : i + BATCH_SIZE]
         response = openai_client.embeddings.create(
@@ -97,7 +101,6 @@ async def _process_document_async(document_id: str):
             doc.status = DocumentStatus.failed
             doc.error_message = str(e)[:500]
             await db.commit()
-            raise
 
 
 @celery_app.task(name="app.workers.embedding_worker.process_document", bind=True, max_retries=2)
