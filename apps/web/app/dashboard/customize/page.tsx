@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
 
 export default function CustomizePage() {
   const router = useRouter();
+  const colorInputRef = useRef<HTMLInputElement>(null);
   const [config, setConfig] = useState({
     bot_name: "Assistant",
     primary_color: "#6366f1",
@@ -17,7 +18,7 @@ export default function CustomizePage() {
 
   useEffect(() => {
     api.getWidgetConfig()
-      .then((c) => setConfig({ ...config, ...c }))
+      .then((c) => setConfig((prev) => ({ ...prev, ...c })))
       .catch(() => router.push("/login"));
   }, []);
 
@@ -28,92 +29,294 @@ export default function CustomizePage() {
       await api.updateWidgetConfig(config);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleDiscard() {
+    api.getWidgetConfig()
+      .then((c) => setConfig((prev) => ({ ...prev, ...c })))
+      .catch(() => {});
   }
 
   return (
-    <div className="max-w-2xl">
-      <h1 className="text-2xl font-bold mb-1">Customize Bot</h1>
-      <p className="text-sm text-gray-500 mb-6">Personalize how your chatbot looks and behaves.</p>
+    <div className="p-10 max-w-7xl" style={{ fontFamily: "'Manrope', sans-serif" }}>
+      <div className="flex flex-col lg:flex-row gap-12">
+        {/* ── Left Column: Configuration Form ── */}
+        <div className="flex-1 space-y-10">
+          <section>
+            <h2 className="text-3xl font-black tracking-tight text-gray-900 mb-2">Customize Bot</h2>
+            <p className="text-gray-500 text-lg max-w-lg">
+              Tailor your AI agent's personality and appearance to match your brand's unique identity.
+            </p>
+          </section>
 
-      <div className="grid grid-cols-2 gap-6">
-        {/* Form */}
-        <form onSubmit={handleSave} className="flex flex-col gap-4">
-          <div>
-            <label className="text-sm font-medium">Bot Name</label>
-            <input
-              type="text"
-              value={config.bot_name}
-              onChange={(e) => setConfig({ ...config, bot_name: e.target.value })}
-              className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Brand Color</label>
-            <div className="flex items-center gap-3 mt-1">
-              <input type="color" value={config.primary_color} onChange={(e) => setConfig({ ...config, primary_color: e.target.value })} className="w-10 h-10 rounded cursor-pointer" />
-              <input type="text" value={config.primary_color} onChange={(e) => setConfig({ ...config, primary_color: e.target.value })} className="flex-1 border rounded-lg px-3 py-2 text-sm" />
-            </div>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Welcome Message</label>
-            <input
-              type="text"
-              value={config.welcome_message}
-              onChange={(e) => setConfig({ ...config, welcome_message: e.target.value })}
-              className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Position</label>
-            <select
-              value={config.position}
-              onChange={(e) => setConfig({ ...config, position: e.target.value })}
-              className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="bottom-right">Bottom Right</option>
-              <option value="bottom-left">Bottom Left</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Custom System Prompt (optional)</label>
-            <textarea
-              rows={3}
-              value={config.system_prompt}
-              onChange={(e) => setConfig({ ...config, system_prompt: e.target.value })}
-              placeholder="e.g. Always respond in Spanish. Be very brief."
-              className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className={`py-2.5 rounded-lg font-semibold transition ${saved ? "bg-green-600 text-white" : "bg-indigo-600 text-white hover:bg-indigo-700"} disabled:opacity-60`}
-          >
-            {saved ? "Saved!" : loading ? "Saving..." : "Save Changes"}
-          </button>
-        </form>
+          <form onSubmit={handleSave} className="space-y-8">
+            {/* Basic Info Card */}
+            <div className="bg-gray-50 p-8 rounded-xl space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Bot Name */}
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-gray-500 ml-1">Bot Name</label>
+                  <input
+                    type="text"
+                    value={config.bot_name}
+                    onChange={(e) => setConfig({ ...config, bot_name: e.target.value })}
+                    className="w-full bg-white border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all"
+                  />
+                </div>
 
-        {/* Live preview */}
-        <div className="relative bg-gray-100 rounded-xl p-4 min-h-[400px]">
-          <p className="text-xs text-gray-400 mb-2 text-center">Preview</p>
-          {/* Bubble */}
-          <div
-            className="absolute bottom-6 right-6 w-12 h-12 rounded-full flex items-center justify-center shadow-lg"
-            style={{ background: config.primary_color }}
-          >
-            <svg className="w-6 h-6 fill-white" viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>
-          </div>
-          {/* Chat panel preview */}
-          <div className="absolute bottom-20 right-6 w-52 bg-white rounded-xl shadow-lg overflow-hidden">
-            <div className="p-2.5 text-white text-xs font-semibold" style={{ background: config.primary_color }}>
-              {config.bot_name || "Assistant"}
-            </div>
-            <div className="p-2.5">
-              <div className="bg-gray-100 rounded-xl px-3 py-2 text-xs text-gray-700">
-                {config.welcome_message || "Hi! How can I help?"}
+                {/* Position toggle */}
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-gray-500 ml-1">Position</label>
+                  <div className="flex p-1 bg-gray-200 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setConfig({ ...config, position: "bottom-right" })}
+                      className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${
+                        config.position === "bottom-right"
+                          ? "bg-white shadow-sm text-gray-900"
+                          : "text-gray-400 hover:text-gray-700"
+                      }`}
+                    >
+                      Right
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfig({ ...config, position: "bottom-left" })}
+                      className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${
+                        config.position === "bottom-left"
+                          ? "bg-white shadow-sm text-gray-900"
+                          : "text-gray-400 hover:text-gray-700"
+                      }`}
+                    >
+                      Left
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Brand Color */}
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-500 ml-1">Brand Color</label>
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => colorInputRef.current?.click()}
+                    className="w-12 h-12 rounded-xl flex items-center justify-center cursor-pointer hover:scale-105 transition-transform shadow-md shrink-0"
+                    style={{ backgroundColor: config.primary_color }}
+                  >
+                    <span className="material-symbols-outlined text-white" style={{ fontSize: "20px" }}>colorize</span>
+                  </button>
+                  <input
+                    ref={colorInputRef}
+                    type="color"
+                    value={config.primary_color}
+                    onChange={(e) => setConfig({ ...config, primary_color: e.target.value })}
+                    className="sr-only"
+                  />
+                  <input
+                    type="text"
+                    value={config.primary_color}
+                    onChange={(e) => setConfig({ ...config, primary_color: e.target.value })}
+                    className="flex-1 bg-white border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 font-mono font-medium outline-none transition-all"
+                  />
+                </div>
               </div>
             </div>
+
+            {/* Content Card */}
+            <div className="bg-gray-50 p-8 rounded-xl space-y-6">
+              {/* Welcome Message */}
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-500 ml-1">Welcome Message</label>
+                <input
+                  type="text"
+                  value={config.welcome_message}
+                  onChange={(e) => setConfig({ ...config, welcome_message: e.target.value })}
+                  className="w-full bg-white border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all"
+                />
+              </div>
+
+              {/* System Prompt */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center ml-1">
+                  <label className="text-sm font-bold text-gray-500">Custom System Prompt</label>
+                  <span className="text-[10px] font-bold text-orange-600 uppercase bg-orange-50 px-2 py-0.5 rounded">
+                    Expert Mode
+                  </span>
+                </div>
+                <textarea
+                  rows={6}
+                  value={config.system_prompt}
+                  onChange={(e) => setConfig({ ...config, system_prompt: e.target.value })}
+                  placeholder="e.g. You are a helpful customer support agent for Acme Inc. Always be concise and friendly."
+                  className="w-full bg-white border border-gray-200 focus:border-orange-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all resize-none"
+                />
+                <p className="text-[11px] text-gray-400 italic mt-1">
+                  The system prompt defines how the AI behaves during all interactions.
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-4">
+              <button
+                type="button"
+                onClick={handleDiscard}
+                className="px-8 py-3 rounded-full font-bold text-gray-400 hover:bg-gray-100 transition-colors"
+              >
+                Discard Changes
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className={`px-10 py-3 rounded-full font-bold shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5 disabled:opacity-60 ${
+                  saved
+                    ? "bg-emerald-600 text-white"
+                    : "bg-gray-900 text-white"
+                }`}
+              >
+                {saved ? "Saved!" : loading ? "Saving..." : "Save Configuration"}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* ── Right Column: Live Preview ── */}
+        <div className="lg:w-[380px] flex flex-col gap-6 shrink-0">
+          <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] px-2">Live Preview</h3>
+
+          {/* Phone frame */}
+          <div
+            className="relative w-full bg-gray-100 rounded-[2.5rem] overflow-hidden flex flex-col border-[12px] border-gray-900"
+            style={{ aspectRatio: "4/5" }}
+          >
+            {/* Chat header */}
+            <div
+              className="p-5 flex items-center justify-between text-white shrink-0"
+              style={{ backgroundColor: config.primary_color }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
+                  <span
+                    className="material-symbols-outlined text-white"
+                    style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}
+                  >
+                    smart_toy
+                  </span>
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm">{config.bot_name || "Assistant"}</h4>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
+                    <span className="text-[10px] opacity-80 font-medium">Online &amp; Ready</span>
+                  </div>
+                </div>
+              </div>
+              <span className="material-symbols-outlined cursor-pointer opacity-70" style={{ fontSize: "20px" }}>close</span>
+            </div>
+
+            {/* Chat body */}
+            <div className="flex-1 p-4 space-y-3 overflow-y-auto bg-white">
+              {/* Bot welcome */}
+              <div className="flex gap-2">
+                <div
+                  className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center"
+                  style={{ backgroundColor: config.primary_color + "22" }}
+                >
+                  <span
+                    className="material-symbols-outlined"
+                    style={{ fontSize: "13px", color: config.primary_color, fontVariationSettings: "'FILL' 1" }}
+                  >
+                    smart_toy
+                  </span>
+                </div>
+                <div className="bg-gray-100 p-3 rounded-2xl rounded-tl-none max-w-[85%]">
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    {config.welcome_message || "Hi! How can I help you today?"}
+                  </p>
+                </div>
+              </div>
+
+              {/* User message */}
+              <div className="flex justify-end">
+                <div className="bg-gray-900 text-white p-3 rounded-2xl rounded-tr-none max-w-[85%]">
+                  <p className="text-xs leading-relaxed">How do I get started?</p>
+                </div>
+              </div>
+
+              {/* Bot reply */}
+              <div className="flex gap-2">
+                <div
+                  className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center"
+                  style={{ backgroundColor: config.primary_color + "22" }}
+                >
+                  <span
+                    className="material-symbols-outlined"
+                    style={{ fontSize: "13px", color: config.primary_color, fontVariationSettings: "'FILL' 1" }}
+                  >
+                    smart_toy
+                  </span>
+                </div>
+                <div className="bg-gray-100 p-3 rounded-2xl rounded-tl-none max-w-[85%]">
+                  <p className="text-xs text-gray-600 leading-relaxed">
+                    I'm here to help! You can ask me anything about our products and services.
+                  </p>
+                </div>
+              </div>
+
+              {/* Typing indicator */}
+              <div className="flex gap-2 opacity-50">
+                <div
+                  className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center"
+                  style={{ backgroundColor: config.primary_color + "22" }}
+                >
+                  <span
+                    className="material-symbols-outlined"
+                    style={{ fontSize: "13px", color: config.primary_color }}
+                  >
+                    smart_toy
+                  </span>
+                </div>
+                <div className="bg-gray-100 px-4 py-3 rounded-full flex gap-1 items-center">
+                  <span className="w-1 h-1 rounded-full bg-gray-400 inline-block" />
+                  <span className="w-1 h-1 rounded-full bg-gray-400 inline-block" />
+                  <span className="w-1 h-1 rounded-full bg-gray-400 inline-block" />
+                </div>
+              </div>
+            </div>
+
+            {/* Input bar */}
+            <div className="p-4 bg-white border-t border-gray-100 shrink-0">
+              <div className="flex items-center gap-2 bg-gray-100 px-4 py-2.5 rounded-full">
+                <input
+                  className="bg-transparent outline-none flex-1 text-xs font-medium text-gray-400"
+                  disabled
+                  placeholder="Type a message..."
+                  type="text"
+                />
+                <span
+                  className="material-symbols-outlined"
+                  style={{ fontSize: "18px", color: config.primary_color, fontVariationSettings: "'FILL' 1" }}
+                >
+                  send
+                </span>
+              </div>
+              <p className="text-[9px] text-center text-gray-300 mt-2">Powered by ChatBot AI</p>
+            </div>
+          </div>
+
+          {/* Pro Tip card */}
+          <div className="bg-orange-50 p-6 rounded-3xl border border-orange-100">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="material-symbols-outlined text-orange-600" style={{ fontSize: "20px" }}>tips_and_updates</span>
+              <h5 className="font-bold text-gray-900 text-sm">Pro Tip</h5>
+            </div>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Using a contrasting <strong>Brand Color</strong> helps the widget stand out on your website, leading to higher engagement.
+            </p>
           </div>
         </div>
       </div>
