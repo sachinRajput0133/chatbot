@@ -1,3 +1,7 @@
+/**
+ * Legacy fetch client — used by dashboard pages that haven't migrated to RTK Query hooks yet.
+ * Reads auth token from localStorage directly.
+ */
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function getToken(): string | null {
@@ -23,16 +27,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  // Auth
   signup: (data: { business_name: string; email: string; password: string; country: string }) =>
     request<{ access_token: string }>("/api/auth/signup", { method: "POST", body: JSON.stringify(data) }),
 
   login: (data: { email: string; password: string }) =>
     request<{ access_token: string }>("/api/auth/login", { method: "POST", body: JSON.stringify(data) }),
 
+  googleAuth: (data: { credential: string; country?: string; business_name?: string }) =>
+    request<{ access_token: string }>("/api/auth/google", { method: "POST", body: JSON.stringify(data) }),
+
   me: () => request<{ user: any; tenant: any }>("/api/auth/me"),
 
-  // Knowledge
   listDocuments: () => request<any[]>("/api/knowledge/"),
 
   uploadDocument: (file: File) => {
@@ -51,19 +56,18 @@ export const api = {
 
   deleteDocument: (id: string) => request<void>(`/api/knowledge/${id}`, { method: "DELETE" }),
 
-  // Widget config
   getWidgetConfig: () => request<any>("/api/widget/config"),
+
   updateWidgetConfig: (data: any) =>
     request<any>("/api/widget/config", { method: "PUT", body: JSON.stringify(data) }),
 
-  // Conversations
   listConversations: (page = 1) => request<any[]>(`/api/conversations/?page=${page}`),
-  getMessages: (conversationId: string) => request<any[]>(`/api/conversations/${conversationId}/messages`),
 
-  // Analytics
+  getMessages: (conversationId: string) =>
+    request<any[]>(`/api/conversations/${conversationId}/messages`),
+
   getAnalytics: () => request<any>("/api/analytics/summary"),
 
-  // Billing
   createCheckout: (plan: string) =>
     request<{ checkout_url: string; gateway: string }>("/api/billing/checkout", {
       method: "POST",
@@ -73,10 +77,17 @@ export const api = {
   getSubscription: () => request<any>("/api/billing/subscription"),
 };
 
-export function saveToken(token: string) {
-  localStorage.setItem("cb_token", token);
+/** Save token to localStorage + Redux store (if available) */
+export function saveToken(token: string): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("cb_token", token);
+  }
 }
 
-export function clearToken() {
-  localStorage.removeItem("cb_token");
+/** Clear auth from localStorage */
+export function clearToken(): void {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("cb_token");
+    localStorage.removeItem("cb_user");
+  }
 }

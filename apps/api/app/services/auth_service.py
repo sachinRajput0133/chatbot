@@ -1,17 +1,33 @@
 import uuid
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from fastapi import HTTPException, status
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
+from fastapi import HTTPException
 
 from app.models.tenant import Tenant, Plan
 from app.models.user import User, UserRole
 from app.models.widget import WidgetConfig
 from app.core.security import hash_password, verify_password, create_access_token
-from app.core.config import settings
 from app.schemas.auth import SignupRequest, LoginRequest, GoogleAuthRequest
 from app.services import email_service
+
+
+async def _get_google_user_info(credential: str) -> dict:
+    """
+    Verify and decode a Google ID token (credential from GoogleLogin component).
+    Uses Google's tokeninfo endpoint so we don't need the google-auth library.
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": credential},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+    data = resp.json()
+    if "error" in data:
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
+    return data
 
 
 async def signup(data: SignupRequest, db: AsyncSession) -> tuple[User, str]:
@@ -66,15 +82,15 @@ async def login(data: LoginRequest, db: AsyncSession) -> tuple[User, str]:
 
 
 async def google_auth(data: GoogleAuthRequest, db: AsyncSession) -> tuple[User, str]:
-    try:
-        info = id_token.verify_oauth2_token(
-            data.id_token, google_requests.Request(), settings.GOOGLE_CLIENT_ID
-        )
-    except Exception:
+    # Verify Google credential (ID token JWT) via tokeninfo endpoint
+    info = await _get_google_user_info(data.credential)
+
+    google_id = info.get("sub")
+    email = info.get("email")
+    if not google_id or not email:
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
-    google_id = info["sub"]
-    email = info["email"]
+    is_new_user = False
 
     # Check existing user by Google ID
     result = await db.execute(select(User).where(User.google_id == google_id))
@@ -88,17 +104,17 @@ async def google_auth(data: GoogleAuthRequest, db: AsyncSession) -> tuple[User, 
             user.google_id = google_id
         else:
             # New user — create tenant + user
+            is_new_user = True
             tenant = Tenant(
                 business_name=data.business_name or info.get("name", email.split("@")[0]),
                 email=email,
-                country=data.country.upper(),
+                country=(data.country or "US").upper(),
                 plan=Plan.free,
             )
             db.add(tenant)
             await db.flush()
 
-            widget = WidgetConfig(tenant_id=tenant.id)
-            db.add(widget)
+            db.add(WidgetConfig(tenant_id=tenant.id))
 
             user = User(
                 tenant_id=tenant.id,
@@ -110,6 +126,16 @@ async def google_auth(data: GoogleAuthRequest, db: AsyncSession) -> tuple[User, 
 
     await db.commit()
     await db.refresh(user)
+
+    if is_new_user:
+        result2 = await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
+        new_tenant = result2.scalar_one_or_none()
+        if new_tenant:
+            email_service.send_welcome(
+                to=new_tenant.email,
+                business_name=new_tenant.business_name,
+                bot_id=str(new_tenant.bot_id),
+            )
 
     token = create_access_token(str(user.id), {"tenant_id": str(user.tenant_id), "role": user.role})
     return user, token

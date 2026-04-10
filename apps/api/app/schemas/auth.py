@@ -14,7 +14,7 @@ class LoginRequest(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    id_token: str
+    credential: str              # Google ID token JWT (from GoogleLogin component)
     business_name: str | None = None
     country: str = "US"
 

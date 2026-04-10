@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { clearToken } from "@/lib/api";
+import { clearToken } from "@/lib/api/client";
 import { ChatbotWidget } from "@/app/components/ChatbotWidget";
 import { HelpChatWidget } from "@/app/components/HelpChatWidget";
 
