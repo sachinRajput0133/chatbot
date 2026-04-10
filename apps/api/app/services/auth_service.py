@@ -8,7 +8,7 @@ from app.models.tenant import Tenant, Plan
 from app.models.user import User, UserRole
 from app.models.widget import WidgetConfig
 from app.core.security import hash_password, verify_password, create_access_token
-from app.schemas.auth import SignupRequest, LoginRequest, GoogleAuthRequest
+from app.schemas.auth import SignupRequest, LoginRequest, GoogleAuthRequest, UpdateProfileRequest, ChangePasswordRequest
 from app.services import email_service
 
 
@@ -155,3 +155,40 @@ async def get_user_with_tenant(user_id: str, db: AsyncSession) -> tuple[User, Te
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     return user, tenant
+
+
+async def update_profile(user_id: str, data: UpdateProfileRequest, db: AsyncSession) -> tuple[User, Tenant]:
+    user, tenant = await get_user_with_tenant(user_id, db)
+
+    if data.business_name is not None:
+        tenant.business_name = data.business_name.strip()
+    if data.country is not None:
+        tenant.country = data.country.upper()
+
+    await db.commit()
+    await db.refresh(user)
+    await db.refresh(tenant)
+    return user, tenant
+
+
+async def change_password(user_id: str, data: ChangePasswordRequest, db: AsyncSession) -> None:
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Google-only accounts have no password — cannot change via this flow
+    if not user.password_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="This account uses Google sign-in. Password change is not available."
+        )
+
+    if not verify_password(data.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=422, detail="New password must be at least 8 characters")
+
+    user.password_hash = hash_password(data.new_password)
+    await db.commit()

@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useSelector } from "react-redux";
+import type { RootState } from "@/lib/store";
 import { clearToken } from "@/lib/api/client";
 import { ChatbotWidget } from "@/app/components/ChatbotWidget";
 import { HelpChatWidget } from "@/app/components/HelpChatWidget";
@@ -13,11 +15,13 @@ const NAV = [
   { href: "/dashboard/conversations", label: "Conversations", icon: "💬" },
   { href: "/dashboard/analytics", label: "Analytics", icon: "📈" },
   { href: "/dashboard/billing", label: "Billing", icon: "💳" },
+  { href: "/dashboard/profile", label: "Profile", icon: "👤" },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const user = useSelector((s: RootState) => s.auth.user);
 
   function logout() {
     clearToken();
@@ -47,7 +51,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Link>
           ))}
         </nav>
-        <div className="p-3 border-t">
+        <div className="p-3 border-t space-y-1">
+          <Link
+            href="/dashboard/profile"
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition ${
+              pathname === "/dashboard/profile"
+                ? "bg-indigo-50 text-indigo-700 font-medium"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold">
+              {user?.email?.[0]?.toUpperCase() ?? "U"}
+            </span>
+            <span className="truncate">{user?.email ?? "Profile"}</span>
+          </Link>
           <button
             onClick={logout}
             className="w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50"

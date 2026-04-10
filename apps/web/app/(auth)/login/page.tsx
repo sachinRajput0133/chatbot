@@ -4,8 +4,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import { useDispatch } from "react-redux";
-import { useLoginMutation, useGoogleAuthMutation } from "@/lib/api";
+import { useLoginMutation, useGoogleAuthMutation, authApi } from "@/lib/api";
 import { setAuth } from "@/lib/slices/authSlice";
+import { store } from "@/lib/store";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,7 +22,11 @@ export default function LoginPage() {
     setError("");
     try {
       const res = await login(form).unwrap();
+      // Temporarily set token so /me call is authenticated
       dispatch(setAuth({ token: res.access_token, user: parseToken(res.access_token) }));
+      // Fetch full user profile to get is_google_user etc.
+      const me = await store.dispatch(authApi.endpoints.me.initiate(undefined, { forceRefetch: true })).unwrap();
+      dispatch(setAuth({ token: res.access_token, user: { ...parseToken(res.access_token), is_google_user: me.user.is_google_user } }));
       router.push("/dashboard");
     } catch (err: unknown) {
       const detail = (err as { data?: { detail?: string } })?.data?.detail;
@@ -35,6 +40,9 @@ export default function LoginPage() {
     try {
       const res = await googleAuth({ credential: credentialResponse.credential }).unwrap();
       dispatch(setAuth({ token: res.access_token, user: parseToken(res.access_token) }));
+      // Fetch full user profile to get is_google_user etc.
+      const me = await store.dispatch(authApi.endpoints.me.initiate(undefined, { forceRefetch: true })).unwrap();
+      dispatch(setAuth({ token: res.access_token, user: { ...parseToken(res.access_token), is_google_user: me.user.is_google_user } }));
       router.push("/dashboard");
     } catch (err: unknown) {
       const detail = (err as { data?: { detail?: string } })?.data?.detail;

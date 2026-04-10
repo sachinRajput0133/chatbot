@@ -5,22 +5,29 @@ export interface AuthResponse {
   token_type: string;
 }
 
+export interface UserOut {
+  id: string;
+  email: string;
+  role: string;
+  tenant_id: string;
+  is_google_user: boolean;
+  created_at: string | null;
+}
+
+export interface TenantOut {
+  id: string;
+  business_name: string;
+  email: string;
+  bot_id: string;
+  plan: string;
+  country: string;
+  message_count_month: number;
+  created_at: string | null;
+}
+
 export interface MeResponse {
-  user: {
-    id: string;
-    email: string;
-    role: string;
-    tenant_id: string;
-  };
-  tenant: {
-    id: string;
-    business_name: string;
-    email: string;
-    bot_id: string;
-    plan: string;
-    country: string;
-    message_count_month: number;
-  };
+  user: UserOut;
+  tenant: TenantOut;
 }
 
 export const authApi = baseApi.injectEndpoints({
@@ -38,6 +45,13 @@ export const authApi = baseApi.injectEndpoints({
       query: () => "/api/auth/me",
       providesTags: ["Profile"],
     }),
+    updateProfile: build.mutation<MeResponse, { business_name?: string; country?: string }>({
+      query: (body) => ({ url: "/api/auth/profile", method: "PUT", body }),
+      invalidatesTags: ["Profile"],
+    }),
+    changePassword: build.mutation<void, { current_password: string; new_password: string }>({
+      query: (body) => ({ url: "/api/auth/change-password", method: "PUT", body }),
+    }),
   }),
 });
 
@@ -46,4 +60,6 @@ export const {
   useLoginMutation,
   useGoogleAuthMutation,
   useMeQuery,
+  useUpdateProfileMutation,
+  useChangePasswordMutation,
 } = authApi;

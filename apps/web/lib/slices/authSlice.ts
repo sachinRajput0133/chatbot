@@ -5,6 +5,7 @@ interface AuthUser {
   email: string;
   role: string;
   tenant_id: string;
+  is_google_user?: boolean;
 }
 
 interface AuthState {
