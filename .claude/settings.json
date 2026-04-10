@@ -1,4 +1,8 @@
 {
+  "env": {
+    "MAX_THINKING_TOKENS": "10000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"
+  },
   "permissions": {
     "allow": [
       "Bash(.venv/bin/python -c ':*)",
@@ -20,7 +24,36 @@
       "Bash(.venv/bin/python -c \"from app.workers.embedding_worker import _process_document_async; print\\('OK'\\)\")",
       "Bash(.venv/bin/pip show:*)",
       "Bash(pnpm add:*)",
-      "Bash(ls /home/knovator/personal/chatbot/apps/web/.env*)"
+      "Bash(ls /home/knovator/personal/chatbot/apps/web/.env*)",
+      "Bash(docker compose -f docker-compose.dev.yml up -d)",
+      "Bash(docker ps*)",
+      "Bash(node /home/knovator/personal/chatbot/.claude/hooks/session-start.js)"
+    ],
+    "additionalDirectories": [
+      "/home/knovator/personal/chatbot/.claude"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/knovator/personal/chatbot/.claude/hooks/session-start.js"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/knovator/personal/chatbot/.claude/hooks/post-edit.js"
+          }
+        ]
+      }
     ]
   }
 }
