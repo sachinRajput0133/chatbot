@@ -10,6 +10,13 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.models.tenant import Tenant, Plan
 from app.models.subscription import Subscription, SubscriptionStatus, PaymentGateway
+from app.services import email_service
+
+PLAN_MESSAGE_LIMITS = {
+    "starter": 1000,
+    "growth": 10000,
+    "enterprise": 999999,
+}
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -125,6 +132,13 @@ async def _on_stripe_sub_created(sub_obj: dict, db: AsyncSession):
     db.add(subscription)
     await db.commit()
 
+    email_service.send_plan_upgraded(
+        to=tenant.email,
+        business_name=tenant.business_name,
+        plan=plan,
+        messages_limit=PLAN_MESSAGE_LIMITS.get(plan, 1000),
+    )
+
 
 async def _on_stripe_sub_updated(sub_obj: dict, db: AsyncSession):
     result = await db.execute(
@@ -147,6 +161,10 @@ async def _on_stripe_sub_cancelled(sub_obj: dict, db: AsyncSession):
         tenant = result2.scalar_one_or_none()
         if tenant:
             tenant.plan = Plan.free
+            email_service.send_plan_cancelled(
+                to=tenant.email,
+                business_name=tenant.business_name,
+            )
         await db.commit()
 
 
@@ -176,6 +194,12 @@ async def handle_razorpay_webhook(payload: dict, db: AsyncSession):
             status=SubscriptionStatus.active,
         )
         db.add(subscription)
+        email_service.send_plan_upgraded(
+            to=tenant.email,
+            business_name=tenant.business_name,
+            plan=plan,
+            messages_limit=PLAN_MESSAGE_LIMITS.get(plan, 1000),
+        )
     elif event == "subscription.cancelled":
         result2 = await db.execute(
             select(Subscription).where(Subscription.gateway_subscription_id == sub_id)
@@ -184,5 +208,9 @@ async def handle_razorpay_webhook(payload: dict, db: AsyncSession):
         if sub:
             sub.status = SubscriptionStatus.cancelled
         tenant.plan = Plan.free
+        email_service.send_plan_cancelled(
+            to=tenant.email,
+            business_name=tenant.business_name,
+        )
 
     await db.commit()

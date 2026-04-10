@@ -17,7 +17,8 @@
       "Bash(.venv/bin/python -c \"from app.main import app; print\\('Import OK'\\)\")",
       "Bash(curl -s http://localhost:8000/api/platform/config)",
       "Bash(curl -s -X POST http://localhost:8000/api/auth/signup -H 'Content-Type: application/json' -d '{\"email\":\"user@example.com\",\"password\":\"Test123!\",\"business_name\":\"Acme Co\",\"country\":\"US\"}')",
-      "Bash(.venv/bin/python -c \"from app.workers.embedding_worker import _process_document_async; print\\('OK'\\)\")"
+      "Bash(.venv/bin/python -c \"from app.workers.embedding_worker import _process_document_async; print\\('OK'\\)\")",
+      "Bash(.venv/bin/pip show:*)"
     ]
   }
 }

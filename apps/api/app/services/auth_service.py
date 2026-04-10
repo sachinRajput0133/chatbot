@@ -11,6 +11,7 @@ from app.models.widget import WidgetConfig
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.config import settings
 from app.schemas.auth import SignupRequest, LoginRequest, GoogleAuthRequest
+from app.services import email_service
 
 
 async def signup(data: SignupRequest, db: AsyncSession) -> tuple[User, str]:
@@ -43,6 +44,12 @@ async def signup(data: SignupRequest, db: AsyncSession) -> tuple[User, str]:
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    email_service.send_welcome(
+        to=tenant.email,
+        business_name=tenant.business_name,
+        bot_id=str(tenant.bot_id),
+    )
 
     token = create_access_token(str(user.id), {"tenant_id": str(tenant.id), "role": user.role})
     return user, token
