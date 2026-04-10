@@ -7,9 +7,17 @@
  *   <script async src="https://yourdomain.com/widget.js"></script>
  */
 
+interface VisitorUser {
+  userId?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+}
+
 interface ChatbotConfig {
   botId: string;
   apiUrl?: string;
+  user?: VisitorUser;
 }
 
 interface WidgetConfig {
@@ -40,8 +48,15 @@ declare global {
   const BOT_ID = config.botId;
   const API_URL = (config.apiUrl || "").replace(/\/$/, "") || "";
 
-  // ── Visitor session ────────────────────────────────────────────────────────
+  // ── Visitor identity ───────────────────────────────────────────────────────
+  const userInfo: VisitorUser | null = config.user || null;
+
   function getVisitorId(): string {
+    // If an identified user is provided, use a stable ID derived from their userId
+    if (userInfo?.userId) {
+      return `usr_${userInfo.userId}`;
+    }
+    // Anonymous visitor: persist a random ID in localStorage
     const key = `cb_visitor_${BOT_ID}`;
     let id = localStorage.getItem(key);
     if (!id) {
@@ -81,6 +96,14 @@ declare global {
         visitor_id: visitorId,
         conversation_id: conversationId || null,
         page_url: window.location.href,
+        ...(userInfo ? {
+          user_info: {
+            user_id: userInfo.userId || null,
+            name: userInfo.name || null,
+            email: userInfo.email || null,
+            phone: userInfo.phone || null,
+          }
+        } : {}),
       }),
     });
     if (!res.ok) {

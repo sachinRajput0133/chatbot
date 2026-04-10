@@ -21,6 +21,10 @@ class ConversationOut(BaseModel):
     started_at: datetime
     last_message_at: datetime
     message_count: int = 0
+    visitor_name: str | None = None
+    visitor_email: str | None = None
+    visitor_phone: str | None = None
+    external_user_id: str | None = None
 
     class Config:
         from_attributes = True

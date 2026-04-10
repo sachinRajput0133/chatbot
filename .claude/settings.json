@@ -30,7 +30,19 @@
       "Bash(node /home/knovator/personal/chatbot/.claude/hooks/session-start.js)",
       "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzM0NmZhM2Q3ZTUxOTQ0MzRiOGU3ZGU3NmRiMmI3YzA3EgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
       "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sX2U5NzNmMDg5ZjQxOTQ2OTVhYTNlMWI3NWNiZmIwYWU5EgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
-      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzEwZGViOGZhOWZmNTQzMWJhMDQxOGQ2YTQzYjE0NTYyEgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")"
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzEwZGViOGZhOWZmNTQzMWJhMDQxOGQ2YTQzYjE0NTYyEgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sX2Y1YjQyZTEzNjBmNDQ1ZmI4YWYzMTlmMGVhNjk1MTAzEgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzU3MTMwOWY2YzgxYTRkZWE4NzIwMTI2NWNlZDVmNjI4EgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
+      "Bash(docker compose:*)",
+      "Bash(python -c ':*)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/google -H \"Content-Type: application/json\" -d '{\"credential\":\"test_invalid_token\"}')",
+      "Bash(.venv/bin/python3 -c ':*)",
+      "Bash(curl -s --max-time 5 \"https://oauth2.googleapis.com/tokeninfo?id_token=test\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(curl -s --max-time 5 \"https://httpbin.org/get\")",
+      "Bash(curl -s --max-time 5 \"https://www.googleapis.com/oauth2/v3/certs\")",
+      "Bash(.venv/bin/pip list:*)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/google -H 'Content-Type: application/json' -d '{\"credential\": \"invalid.token.here\"}')"
     ],
     "additionalDirectories": [
       "/home/knovator/personal/chatbot/.claude"

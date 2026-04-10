@@ -15,6 +15,7 @@ from app.core.redis import get_conversation_history, append_conversation_message
 from app.models.tenant import Tenant, Plan
 from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.models.widget import WidgetConfig
+from app.schemas.chat import VisitorInfo
 
 PLAN_LIMITS = {
     Plan.free: 100,
@@ -168,6 +169,7 @@ async def _get_or_create_conversation(
     tenant_id: uuid.UUID, visitor_id: str,
     conversation_id: uuid.UUID | None, page_url: str | None,
     db: AsyncSession,
+    user_info: VisitorInfo | None = None,
 ) -> WebConversation:
     if conversation_id:
         result = await db.execute(
@@ -179,8 +181,25 @@ async def _get_or_create_conversation(
         conv = result.scalar_one_or_none()
         if conv:
             conv.last_message_at = datetime.now(timezone.utc)
+            # Update identity fields if the user provided them and they changed
+            if user_info:
+                if user_info.name:
+                    conv.visitor_name = user_info.name
+                if user_info.email:
+                    conv.visitor_email = user_info.email
+                if user_info.phone:
+                    conv.visitor_phone = user_info.phone
             return conv
-    conv = WebConversation(tenant_id=tenant_id, visitor_id=visitor_id, page_url=page_url)
+    # New conversation — populate identity fields from user_info if present
+    conv = WebConversation(
+        tenant_id=tenant_id,
+        visitor_id=visitor_id,
+        page_url=page_url,
+        visitor_name=user_info.name if user_info else None,
+        visitor_email=user_info.email if user_info else None,
+        visitor_phone=user_info.phone if user_info else None,
+        external_user_id=user_info.user_id if user_info else None,
+    )
     db.add(conv)
     await db.flush()
     return conv
@@ -192,6 +211,7 @@ async def handle_chat(
     bot_id: uuid.UUID, message: str, visitor_id: str,
     conversation_id: uuid.UUID | None, page_url: str | None,
     db: AsyncSession,
+    user_info: VisitorInfo | None = None,
 ) -> tuple[str, uuid.UUID]:
 
     result = await db.execute(select(Tenant).where(Tenant.bot_id == bot_id))
@@ -208,7 +228,11 @@ async def handle_chat(
     system_prompt = (widget.system_prompt if widget and widget.system_prompt else None) or \
         DEFAULT_SYSTEM_PROMPT.format(business_name=tenant.business_name)
 
-    conv = await _get_or_create_conversation(tenant.id, visitor_id, conversation_id, page_url, db)
+    # If user is identified, use a stable visitor_id based on their external user ID
+    if user_info and user_info.user_id:
+        visitor_id = f"usr_{user_info.user_id}"
+
+    conv = await _get_or_create_conversation(tenant.id, visitor_id, conversation_id, page_url, db, user_info)
 
     embedding = await _embed_query(message)
     context_chunks = await _retrieve_chunks(tenant.id, message, embedding, db)

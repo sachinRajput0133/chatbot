@@ -26,5 +26,6 @@ async def chat(
         conversation_id=data.conversation_id,
         page_url=data.page_url,
         db=db,
+        user_info=data.user_info,
     )
     return ChatResponse(reply=reply, conversation_id=conversation_id)

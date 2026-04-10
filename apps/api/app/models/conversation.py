@@ -21,6 +21,10 @@ class WebConversation(Base):
     )
     visitor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     page_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    visitor_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    visitor_email: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    visitor_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    external_user_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
