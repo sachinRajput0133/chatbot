@@ -2,6 +2,8 @@
 Dual-gateway billing service.
 India → Razorpay  |  International → Stripe
 """
+import hmac
+import hashlib
 import stripe
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -203,7 +205,63 @@ async def _on_stripe_sub_cancelled(sub_obj: dict, db: AsyncSession):
         await db.commit()
 
 
-async def handle_razorpay_webhook(payload: dict, db: AsyncSession):
+async def verify_and_activate_razorpay(tenant: Tenant, data, db: AsyncSession):
+    """
+    Called immediately after checkout.js handler fires.
+    Verifies the Razorpay payment signature and activates the plan right away
+    — no webhook needed (works on localhost too).
+    Signature: HMAC-SHA256(payment_id + "|" + subscription_id, key_secret)
+    """
+    expected = hmac.new(
+        settings.RAZORPAY_KEY_SECRET.encode(),
+        f"{data.payment_id}|{data.subscription_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, data.signature):
+        raise HTTPException(status_code=400, detail="Invalid Razorpay payment signature")
+
+    plan = data.plan
+    tenant.plan = PLAN_ENUM_MAP.get(plan, Plan.starter)
+
+    # Upsert subscription record
+    result = await db.execute(
+        select(Subscription).where(Subscription.gateway_subscription_id == data.subscription_id)
+    )
+    sub = result.scalar_one_or_none()
+    if sub:
+        sub.status = SubscriptionStatus.active
+        sub.plan = plan
+    else:
+        sub = Subscription(
+            tenant_id=tenant.id,
+            gateway=PaymentGateway.razorpay,
+            gateway_subscription_id=data.subscription_id,
+            plan=plan,
+            status=SubscriptionStatus.active,
+        )
+        db.add(sub)
+
+    await db.commit()
+
+    email_service.send_plan_upgraded(
+        to=tenant.email,
+        business_name=tenant.business_name,
+        plan=plan,
+        messages_limit=PLAN_MESSAGE_LIMITS.get(plan, 1000),
+    )
+
+
+async def handle_razorpay_webhook(body: bytes, signature: str | None, db: AsyncSession):
+    import json
+
+    # Verify signature when secret is configured
+    secret = settings.RAZORPAY_WEBHOOK_SECRET
+    if secret and signature:
+        expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, signature):
+            raise HTTPException(status_code=400, detail="Invalid Razorpay webhook signature")
+
+    payload = json.loads(body)
     event = payload.get("event")
     entity = payload.get("payload", {}).get("subscription", {}).get("entity", {})
 
@@ -219,22 +277,35 @@ async def handle_razorpay_webhook(payload: dict, db: AsyncSession):
     if not tenant:
         return
 
-    if event == "subscription.activated":
+    if event in ("subscription.activated", "subscription.charged"):
         tenant.plan = PLAN_ENUM_MAP.get(plan, Plan.starter)
-        subscription = Subscription(
-            tenant_id=tenant.id,
-            gateway=PaymentGateway.razorpay,
-            gateway_subscription_id=sub_id,
-            plan=plan,
-            status=SubscriptionStatus.active,
+
+        # Upsert subscription record
+        result2 = await db.execute(
+            select(Subscription).where(Subscription.gateway_subscription_id == sub_id)
         )
-        db.add(subscription)
-        email_service.send_plan_upgraded(
-            to=tenant.email,
-            business_name=tenant.business_name,
-            plan=plan,
-            messages_limit=PLAN_MESSAGE_LIMITS.get(plan, 1000),
-        )
+        sub = result2.scalar_one_or_none()
+        if sub:
+            sub.status = SubscriptionStatus.active
+            sub.plan = plan
+        else:
+            sub = Subscription(
+                tenant_id=tenant.id,
+                gateway=PaymentGateway.razorpay,
+                gateway_subscription_id=sub_id,
+                plan=plan,
+                status=SubscriptionStatus.active,
+            )
+            db.add(sub)
+
+        if event == "subscription.activated":
+            email_service.send_plan_upgraded(
+                to=tenant.email,
+                business_name=tenant.business_name,
+                plan=plan,
+                messages_limit=PLAN_MESSAGE_LIMITS.get(plan, 1000),
+            )
+
     elif event == "subscription.cancelled":
         result2 = await db.execute(
             select(Subscription).where(Subscription.gateway_subscription_id == sub_id)

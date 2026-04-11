@@ -79,6 +79,17 @@ export const api = {
       body: JSON.stringify({ plan }),
     }),
 
+  verifyRazorpayPayment: (data: {
+    payment_id: string;
+    subscription_id: string;
+    signature: string;
+    plan: string;
+  }) =>
+    request<{ status: string; plan: string }>("/api/billing/verify-razorpay", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
   getSubscription: () => request<any>("/api/billing/subscription"),
 };
 

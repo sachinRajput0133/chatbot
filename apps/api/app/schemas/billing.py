@@ -13,6 +13,13 @@ class CheckoutResponse(BaseModel):
     key_id: str | None = None           # Razorpay only — publishable key
 
 
+class VerifyRazorpayRequest(BaseModel):
+    payment_id: str       # razorpay_payment_id from checkout handler
+    subscription_id: str  # razorpay_subscription_id from checkout handler
+    signature: str        # razorpay_signature from checkout handler
+    plan: str             # starter | growth | enterprise
+
+
 class SubscriptionOut(BaseModel):
     plan: str
     status: str

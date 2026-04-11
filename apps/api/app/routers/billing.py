@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import get_current_user_id
 from app.models.subscription import Subscription
-from app.schemas.billing import CreateCheckoutRequest, CheckoutResponse, SubscriptionOut
+from app.schemas.billing import CreateCheckoutRequest, CheckoutResponse, SubscriptionOut, VerifyRazorpayRequest
 from app.services import auth_service, billing_service
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
@@ -40,6 +40,17 @@ async def get_subscription(
     )
 
 
+@router.post("/verify-razorpay")
+async def verify_razorpay_payment(
+    data: VerifyRazorpayRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    await billing_service.verify_and_activate_razorpay(tenant, data, db)
+    return {"status": "ok", "plan": data.plan}
+
+
 @router.post("/webhook/stripe", include_in_schema=False)
 async def stripe_webhook(
     request: Request,
@@ -54,8 +65,9 @@ async def stripe_webhook(
 @router.post("/webhook/razorpay", include_in_schema=False)
 async def razorpay_webhook(
     request: Request,
+    x_razorpay_signature: str = Header(None, alias="x-razorpay-signature"),
     db: AsyncSession = Depends(get_db),
 ):
-    payload = await request.json()
-    await billing_service.handle_razorpay_webhook(payload, db)
+    body = await request.body()
+    await billing_service.handle_razorpay_webhook(body, x_razorpay_signature, db)
     return {"status": "ok"}

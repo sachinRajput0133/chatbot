@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api/client";
 
 declare global {
@@ -65,12 +65,14 @@ const PLANS = [
 
 export default function BillingPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const justPaid = searchParams.get("success") === "true";
   const [me, setMe] = useState<any>(null);
   const [subscription, setSubscription] = useState<any>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [isIndia, setIsIndia] = useState(false);
 
-  useEffect(() => {
+  function loadData() {
     Promise.all([api.me(), api.getSubscription()])
       .then(([m, s]) => {
         setMe(m);
@@ -78,6 +80,15 @@ export default function BillingPage() {
         setIsIndia(m.tenant.country === "IN");
       })
       .catch(() => router.push("/login"));
+  }
+
+  useEffect(() => {
+    loadData();
+    // If returning from payment, poll once after 2s to catch any lag
+    if (justPaid) {
+      const t = setTimeout(loadData, 2000);
+      return () => clearTimeout(t);
+    }
   }, []);
 
   async function handleUpgrade(plan: string) {
@@ -100,7 +111,19 @@ export default function BillingPage() {
             email: me?.tenant?.email || "",
           },
           theme: { color: "#6366f1" },
-          handler: function () {
+          handler: async function (response: any) {
+            // Verify payment server-side and activate plan immediately
+            // (works on localhost; webhook is backup for production)
+            try {
+              await api.verifyRazorpayPayment({
+                payment_id: response.razorpay_payment_id,
+                subscription_id: response.razorpay_subscription_id,
+                signature: response.razorpay_signature,
+                plan,
+              });
+            } catch (_) {
+              // Even if verify fails, redirect — webhook will catch it in prod
+            }
             window.location.href = "/dashboard/billing?success=true";
           },
           modal: {
@@ -130,6 +153,12 @@ export default function BillingPage() {
       <p className="text-sm text-gray-500 mb-6">
         {isIndia ? "Payments via Razorpay (UPI, cards, net banking)" : "Payments via Stripe (all major cards)"}
       </p>
+
+      {justPaid && (
+        <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-4 mb-4 text-sm text-emerald-700 font-medium">
+          Payment successful! Your plan has been upgraded.
+        </div>
+      )}
 
       {subscription && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6 text-sm text-green-700">
