@@ -91,6 +91,9 @@ export const api = {
     }),
 
   getSubscription: () => request<any>("/api/billing/subscription"),
+
+  cancelSubscription: () =>
+    request<{ status: string }>("/api/billing/cancel", { method: "POST" }),
 };
 
 /** Save token to localStorage + Redux store (if available) */

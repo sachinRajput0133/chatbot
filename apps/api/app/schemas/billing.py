@@ -25,6 +25,7 @@ class SubscriptionOut(BaseModel):
     status: str
     gateway: str
     current_period_end: str | None
+    cancel_at_period_end: bool = False
 
     class Config:
         from_attributes = True

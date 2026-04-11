@@ -37,7 +37,18 @@ async def get_subscription(
         status=sub.status,
         gateway=sub.gateway,
         current_period_end=sub.current_period_end.isoformat() if sub.current_period_end else None,
+        cancel_at_period_end=sub.cancel_at_period_end,
     )
+
+
+@router.post("/cancel")
+async def cancel_subscription(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    await billing_service.cancel_subscription(tenant, db)
+    return {"status": "ok"}
 
 
 @router.post("/verify-razorpay")

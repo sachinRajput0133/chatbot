@@ -4,9 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api/client";
 
 declare global {
-  interface Window {
-    Razorpay: any;
-  }
+  interface Window { Razorpay: any; }
 }
 
 function loadRazorpayScript(): Promise<void> {
@@ -63,6 +61,74 @@ const PLANS = [
   },
 ];
 
+const PLAN_LOSSES: Record<string, string[]> = {
+  starter: ["1,000 AI messages/month", "10 knowledge documents", "Email support"],
+  growth:  ["10,000 AI messages/month", "Unlimited documents", "Priority support", "3 websites"],
+  enterprise: ["Unlimited AI messages", "Unlimited documents", "Dedicated support", "Unlimited websites"],
+};
+
+function CancelModal({
+  plan,
+  periodEnd,
+  onConfirm,
+  onClose,
+  loading,
+}: {
+  plan: string;
+  periodEnd: string | null;
+  onConfirm: () => void;
+  onClose: () => void;
+  loading: boolean;
+}) {
+  const losses = PLAN_LOSSES[plan] || [];
+  const endDate = periodEnd ? new Date(periodEnd).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "end of billing period";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        {/* Header */}
+        <div className="bg-indigo-600 px-6 py-5 text-white">
+          <div className="text-xs font-semibold uppercase tracking-widest opacity-75 mb-1">Before you go</div>
+          <h2 className="text-xl font-bold">You'll lose access to these features</h2>
+        </div>
+
+        {/* Loss list */}
+        <div className="px-6 py-5">
+          <ul className="space-y-2.5 mb-5">
+            {losses.map((l) => (
+              <li key={l} className="flex items-center gap-3 text-sm text-gray-700">
+                <span className="w-5 h-5 rounded-full bg-red-100 text-red-500 flex items-center justify-center shrink-0 text-xs font-bold">✕</span>
+                {l}
+              </li>
+            ))}
+          </ul>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 mb-6">
+            <strong>Your access continues until {endDate}.</strong> No charge after that.
+          </div>
+
+          {/* Primary CTA — keep plan */}
+          <button
+            onClick={onClose}
+            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl transition mb-3"
+          >
+            Keep my {plan.charAt(0).toUpperCase() + plan.slice(1)} plan
+          </button>
+
+          {/* Secondary — tiny, low-contrast cancel link */}
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="w-full py-2 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50 transition"
+          >
+            {loading ? "Cancelling..." : "No thanks, cancel my subscription"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BillingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -70,6 +136,8 @@ export default function BillingPage() {
   const [me, setMe] = useState<any>(null);
   const [subscription, setSubscription] = useState<any>(null);
   const [loading, setLoading] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [isIndia, setIsIndia] = useState(false);
 
   function loadData() {
@@ -84,7 +152,6 @@ export default function BillingPage() {
 
   useEffect(() => {
     loadData();
-    // If returning from payment, poll once after 2s to catch any lag
     if (justPaid) {
       const t = setTimeout(loadData, 2000);
       return () => clearTimeout(t);
@@ -95,10 +162,8 @@ export default function BillingPage() {
     setLoading(plan);
     try {
       const result = await api.createCheckout(plan);
-
       if (result.gateway === "stripe") {
-        window.location.href = result.checkout_url;
-
+        window.location.href = result.checkout_url!;
       } else if (result.gateway === "razorpay") {
         await loadRazorpayScript();
         const options = {
@@ -106,14 +171,9 @@ export default function BillingPage() {
           subscription_id: result.subscription_id,
           name: me?.tenant?.business_name || "Chatbot Platform",
           description: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
-          image: "/logo.png",
-          prefill: {
-            email: me?.tenant?.email || "",
-          },
+          prefill: { email: me?.tenant?.email || "" },
           theme: { color: "#6366f1" },
           handler: async function (response: any) {
-            // Verify payment server-side and activate plan immediately
-            // (works on localhost; webhook is backup for production)
             try {
               await api.verifyRazorpayPayment({
                 payment_id: response.razorpay_payment_id,
@@ -121,25 +181,31 @@ export default function BillingPage() {
                 signature: response.razorpay_signature,
                 plan,
               });
-            } catch (_) {
-              // Even if verify fails, redirect — webhook will catch it in prod
-            }
+            } catch (_) {}
             window.location.href = "/dashboard/billing?success=true";
           },
-          modal: {
-            ondismiss: function () {
-              setLoading(null);
-            },
-          },
+          modal: { ondismiss: () => setLoading(null) },
         };
-        const rzp = new window.Razorpay(options);
-        rzp.open();
-        return; // keep loading until modal closes
+        new window.Razorpay(options).open();
+        return;
       }
     } catch (e: any) {
       alert(e.message);
     } finally {
       setLoading(null);
+    }
+  }
+
+  async function confirmCancel() {
+    setCancelling(true);
+    try {
+      await api.cancelSubscription();
+      setShowCancelModal(false);
+      await loadData();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -149,6 +215,16 @@ export default function BillingPage() {
 
   return (
     <div className="max-w-4xl">
+      {showCancelModal && (
+        <CancelModal
+          plan={subscription?.plan || currentPlan}
+          periodEnd={subscription?.current_period_end}
+          onConfirm={confirmCancel}
+          onClose={() => setShowCancelModal(false)}
+          loading={cancelling}
+        />
+      )}
+
       <h1 className="text-2xl font-bold mb-1">Billing</h1>
       <p className="text-sm text-gray-500 mb-6">
         {isIndia ? "Payments via Razorpay (UPI, cards, net banking)" : "Payments via Stripe (all major cards)"}
@@ -160,13 +236,43 @@ export default function BillingPage() {
         </div>
       )}
 
-      {subscription && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6 text-sm text-green-700">
-          Current plan: <strong>{subscription.plan}</strong> · Status: {subscription.status}
-          {subscription.current_period_end && ` · Renews ${new Date(subscription.current_period_end).toLocaleDateString()}`}
+      {/* Active subscription info bar */}
+      {subscription && !subscription.cancel_at_period_end && (
+        <div className="bg-white border rounded-xl px-5 py-4 mb-6 flex items-center justify-between">
+          <div className="text-sm text-gray-700">
+            <span className="font-semibold capitalize text-indigo-700">{subscription.plan}</span>
+            <span className="text-gray-400"> plan · active</span>
+            {subscription.current_period_end && (
+              <span className="text-gray-400 ml-1">
+                · Renews {new Date(subscription.current_period_end).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+          {/* Manage link — low prominence, not a red button */}
+          <button
+            onClick={() => setShowCancelModal(true)}
+            className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 transition"
+          >
+            Manage subscription
+          </button>
         </div>
       )}
 
+      {/* Scheduled cancellation notice (like Claude's billing page) */}
+      {subscription?.cancel_at_period_end && (
+        <div className="bg-gray-50 border border-gray-200 rounded-xl px-5 py-4 mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3 text-sm text-gray-600">
+            <span className="text-lg">📅</span>
+            <span>
+              Your subscription will be cancelled on{" "}
+              <strong>{subscription.current_period_end ? new Date(subscription.current_period_end).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "end of billing period"}</strong>.
+              You'll keep full access until then.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Plan cards */}
       <div className="grid grid-cols-4 gap-4">
         {PLANS.map((plan) => (
           <div
@@ -194,7 +300,7 @@ export default function BillingPage() {
             ) : (
               <button
                 onClick={() => handleUpgrade(plan.key)}
-                disabled={loading === plan.key}
+                disabled={!!loading}
                 className={`w-full py-2 rounded-lg text-sm font-semibold transition ${
                   plan.popular
                     ? "bg-indigo-600 text-white hover:bg-indigo-700"

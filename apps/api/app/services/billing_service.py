@@ -4,6 +4,7 @@ India → Razorpay  |  International → Stripe
 """
 import hmac
 import hashlib
+from datetime import datetime, timezone
 import stripe
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -205,6 +206,46 @@ async def _on_stripe_sub_cancelled(sub_obj: dict, db: AsyncSession):
         await db.commit()
 
 
+async def cancel_subscription(tenant: Tenant, db: AsyncSession):
+    """
+    Cancel at period end — user keeps access until current period expires,
+    no auto-deduction next month.
+    """
+    result = await db.execute(select(Subscription).where(Subscription.tenant_id == tenant.id))
+    sub = result.scalar_one_or_none()
+    if not sub or sub.status != SubscriptionStatus.active:
+        raise HTTPException(status_code=400, detail="No active subscription to cancel")
+
+    if sub.gateway == PaymentGateway.razorpay:
+        razorpay_client = _get_razorpay_client()
+        try:
+            # Fetch current state from Razorpay first
+            rz_sub = razorpay_client.subscription.fetch(sub.gateway_subscription_id)
+            rz_status = rz_sub.get("status", "")
+
+            if rz_status in ("created", "authenticated"):
+                # Not yet active — cancel immediately (no cycle to end)
+                razorpay_client.subscription.cancel(sub.gateway_subscription_id, {})
+            elif rz_status == "active":
+                # Active — cancel at end of current billing cycle
+                razorpay_client.subscription.cancel(
+                    sub.gateway_subscription_id,
+                    {"cancel_at_cycle_end": 1},
+                )
+            # If already cancelled/completed, skip the API call
+        except Exception as e:
+            # Log but don't block — mark cancelled in our DB regardless
+            print(f"[billing] Razorpay cancel warning for {sub.gateway_subscription_id}: {e}")
+    elif sub.gateway == PaymentGateway.stripe:
+        stripe.Subscription.modify(
+            sub.gateway_subscription_id,
+            cancel_at_period_end=True,
+        )
+
+    sub.cancel_at_period_end = True
+    await db.commit()
+
+
 async def verify_and_activate_razorpay(tenant: Tenant, data, db: AsyncSession):
     """
     Called immediately after checkout.js handler fires.
@@ -223,14 +264,28 @@ async def verify_and_activate_razorpay(tenant: Tenant, data, db: AsyncSession):
     plan = data.plan
     tenant.plan = PLAN_ENUM_MAP.get(plan, Plan.starter)
 
-    # Upsert subscription record
+    # Fetch subscription details from Razorpay to get current_period_end
+    razorpay_client = _get_razorpay_client()
+    rz_sub = razorpay_client.subscription.fetch(data.subscription_id)
+    # current_end is a Unix timestamp
+    period_end = None
+    if rz_sub.get("current_end"):
+        period_end = datetime.fromtimestamp(rz_sub["current_end"], tz=timezone.utc)
+
+    # Upsert subscription record — look up by tenant_id first (handles plan upgrades/downgrades
+    # where a new subscription_id is created but the tenant already has a record)
     result = await db.execute(
-        select(Subscription).where(Subscription.gateway_subscription_id == data.subscription_id)
+        select(Subscription).where(Subscription.tenant_id == tenant.id)
     )
     sub = result.scalar_one_or_none()
     if sub:
+        sub.gateway_subscription_id = data.subscription_id
+        sub.gateway = PaymentGateway.razorpay
         sub.status = SubscriptionStatus.active
         sub.plan = plan
+        sub.cancel_at_period_end = False
+        if period_end:
+            sub.current_period_end = period_end
     else:
         sub = Subscription(
             tenant_id=tenant.id,
@@ -238,6 +293,7 @@ async def verify_and_activate_razorpay(tenant: Tenant, data, db: AsyncSession):
             gateway_subscription_id=data.subscription_id,
             plan=plan,
             status=SubscriptionStatus.active,
+            current_period_end=period_end,
         )
         db.add(sub)
 
