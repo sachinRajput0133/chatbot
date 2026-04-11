@@ -14,6 +14,18 @@ class MessageOut(BaseModel):
         from_attributes = True
 
 
+class MessagesPage(BaseModel):
+    """Cursor-paginated message response.
+
+    ``next_cursor`` is the ID of the *oldest* message in the current batch.
+    Pass it as ``?before=<next_cursor>`` to retrieve the next (older) page.
+    ``has_more`` is False when the beginning of the conversation has been reached.
+    """
+    messages: list[MessageOut]
+    has_more: bool
+    next_cursor: str | None = None
+
+
 class ConversationOut(BaseModel):
     id: uuid.UUID
     visitor_id: str

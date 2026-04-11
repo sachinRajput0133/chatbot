@@ -2,12 +2,11 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user_id
 from app.models.conversation import WebConversation, WebMessage
-from app.schemas.conversation import ConversationOut, MessageOut
+from app.schemas.conversation import ConversationOut, MessageOut, MessagesPage
 from app.services import auth_service
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
@@ -88,20 +87,76 @@ async def get_conversation(
     )
 
 
-@router.get("/{conversation_id}/messages", response_model=list[MessageOut])
+@router.get("/{conversation_id}/messages", response_model=MessagesPage)
 async def get_messages(
     conversation_id: uuid.UUID,
+    limit: int = Query(30, ge=1, le=100),
+    before: uuid.UUID | None = Query(None, description="Cursor: fetch messages older than this message ID"),
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Cursor-based paginated messages.
+
+    - First load: omit `before` → returns the **latest** `limit` messages.
+    - Load older: pass `before=<next_cursor>` from previous response.
+    - Response is always in **chronological order** (oldest → newest).
+    - `has_more=true` means there are still older messages to load.
+    """
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
-    result = await db.execute(
-        select(WebMessage)
-        .join(WebConversation)
-        .where(
-            WebMessage.conversation_id == conversation_id,
+
+    # Verify conversation belongs to this tenant
+    conv_result = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
             WebConversation.tenant_id == tenant.id,
         )
-        .order_by(WebMessage.created_at.asc())
     )
-    return list(result.scalars().all())
+    if not conv_result.scalar_one_or_none():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Build query — fetch DESC so we get the freshest (or just-before-cursor) messages.
+    # We fetch limit+1 to detect whether there are more older messages.
+    query = (
+        select(WebMessage)
+        .where(WebMessage.conversation_id == conversation_id)
+        .order_by(WebMessage.created_at.desc())
+        .limit(limit + 1)
+    )
+
+    if before:
+        # Find the created_at of the cursor message so we can use a timestamp boundary.
+        # Using the UUID directly is simpler and avoids a subquery.
+        cursor_result = await db.execute(
+            select(WebMessage.created_at).where(WebMessage.id == before)
+        )
+        cursor_ts = cursor_result.scalar_one_or_none()
+        if cursor_ts:
+            query = (
+                select(WebMessage)
+                .where(
+                    WebMessage.conversation_id == conversation_id,
+                    WebMessage.created_at < cursor_ts,
+                )
+                .order_by(WebMessage.created_at.desc())
+                .limit(limit + 1)
+            )
+
+    result = await db.execute(query)
+    rows = list(result.scalars().all())
+
+    has_more = len(rows) > limit
+    if has_more:
+        rows = rows[:limit]  # drop the extra sentinel row
+
+    # Reverse back to chronological order (oldest → newest)
+    rows.reverse()
+
+    next_cursor = str(rows[0].id) if (has_more and rows) else None
+
+    return MessagesPage(
+        messages=rows,
+        has_more=has_more,
+        next_cursor=next_cursor,
+    )

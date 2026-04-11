@@ -91,8 +91,10 @@ export const api = {
   getConversation: (conversationId: string) =>
     request<any>(`/api/conversations/${conversationId}`),
 
-  getMessages: (conversationId: string) =>
-    request<any[]>(`/api/conversations/${conversationId}/messages`),
+  getMessages: (conversationId: string, before?: string) =>
+    request<{ messages: any[]; has_more: boolean; next_cursor: string | null }>(
+      `/api/conversations/${conversationId}/messages${before ? `?before=${before}` : ""}`
+    ),
 
   getAnalytics: () => request<any>("/api/analytics/summary"),
 

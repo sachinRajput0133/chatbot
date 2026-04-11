@@ -21,12 +21,25 @@ function formatTime(dateStr: string): string {
 
 export default function ConversationsPage() {
   const router = useRouter();
+
+  // ── Conversation list ──────────────────────────────────────────────
   const [conversations, setConversations] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
-  const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+
+  // ── Messages + pagination ──────────────────────────────────────────
+  const [messages, setMessages] = useState<any[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [msgLoading, setMsgLoading] = useState(false);
+
+  // ── Scroll refs ────────────────────────────────────────────────────
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // ── Sidebar copy state ─────────────────────────────────────────────
   const [copiedId, setCopiedId] = useState(false);
 
   const copyVisitorId = useCallback((id: string) => {
@@ -35,6 +48,7 @@ export default function ConversationsPage() {
     setTimeout(() => setCopiedId(false), 2000);
   }, []);
 
+  // ── Load conversation list on mount ───────────────────────────────
   useEffect(() => {
     api.listConversations()
       .then(setConversations)
@@ -42,20 +56,70 @@ export default function ConversationsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
+  // ── Open conversation — load latest page, scroll to bottom ────────
   async function openConversation(conv: any) {
+    // Reset state immediately for fast visual feedback
     setSelected(conv);
-    const [msgs, fresh] = await Promise.all([
-      api.getMessages(conv.id),
-      api.getConversation(conv.id),
-    ]);
-    setMessages(msgs);
-    setSelected(fresh);
+    setMessages([]);
+    setHasMore(false);
+    setNextCursor(null);
+    setMsgLoading(true);
+
+    try {
+      const [page, fresh] = await Promise.all([
+        api.getMessages(conv.id),
+        api.getConversation(conv.id),
+      ]);
+      setMessages(page.messages);
+      setHasMore(page.has_more);
+      setNextCursor(page.next_cursor);
+      setSelected(fresh);
+
+      // Scroll to bottom after messages paint
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+      });
+    } finally {
+      setMsgLoading(false);
+    }
   }
 
+  // ── Load older messages — prepend while preserving scroll pos ─────
+  const loadMoreMessages = useCallback(async () => {
+    if (!selected || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+
+    const container = scrollContainerRef.current;
+    const prevScrollHeight = container?.scrollHeight ?? 0;
+
+    try {
+      const page = await api.getMessages(selected.id, nextCursor);
+      setMessages((prev) => [...page.messages, ...prev]);
+      setHasMore(page.has_more);
+      setNextCursor(page.next_cursor);
+
+      // Restore scroll position so old messages appear above without jumping
+      requestAnimationFrame(() => {
+        if (container) {
+          const newScrollHeight = container.scrollHeight;
+          container.scrollTop = newScrollHeight - prevScrollHeight;
+        }
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [selected, nextCursor, loadingMore]);
+
+  // ── Scroll listener — trigger load when near top ──────────────────
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    if (container.scrollTop < 80 && hasMore && !loadingMore) {
+      loadMoreMessages();
+    }
+  }, [hasMore, loadingMore, loadMoreMessages]);
+
+  // ── Filtered conversation list ────────────────────────────────────
   const filtered = conversations.filter((c) => {
     if (search === "") return true;
     const q = search.toLowerCase();
@@ -213,52 +277,92 @@ export default function ConversationsPage() {
                 </div>
               </div>
 
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-10 py-10 flex flex-col items-center">
-                <div className="w-full max-w-3xl space-y-10 pb-4">
-                  {messages.length === 0 ? (
-                    <div className="text-center text-gray-400 text-sm py-10">No messages in this conversation</div>
-                  ) : (
-                    messages.map((msg) => {
-                      const isUser = msg.role === "user";
-                      return (
-                        <div
-                          key={msg.id}
-                          className={`flex gap-5 w-full ${isUser ? "flex-row-reverse" : ""}`}
-                        >
-                          {/* Avatar */}
-                          <div
-                            className={`w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-white shadow-md`}
-                            style={{ backgroundColor: isUser ? "#191c1d" : "#a93200" }}
-                          >
-                            <span
-                              className="material-symbols-outlined"
-                              style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}
-                            >
-                              {isUser ? "person" : "smart_toy"}
-                            </span>
-                          </div>
+              {/* Messages — scrollable container with infinite scroll */}
+              <div
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto px-10 py-6 flex flex-col items-center"
+                onScroll={handleScroll}
+              >
+                <div className="w-full max-w-3xl flex flex-col gap-0">
 
-                          {/* Bubble + timestamp */}
-                          <div className={`space-y-2 flex flex-col ${isUser ? "items-end" : "items-start"} flex-1`}>
-                            <div
-                              className={`px-6 py-4 text-sm leading-relaxed ${
-                                isUser
-                                  ? "text-white rounded-[2rem] rounded-tr-none"
-                                  : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
-                              }`}
-                              style={isUser ? { backgroundColor: "#a93200" } : {}}
-                            >
-                              {msg.content}
-                            </div>
-                            <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">
-                              {isUser ? "Visitor" : "Bot"} · {formatTime(msg.created_at)}
-                            </span>
+                  {/* Load-more spinner (top) */}
+                  {loadingMore && (
+                    <div className="flex justify-center py-4">
+                      <div className="w-5 h-5 rounded-full border-2 border-gray-200 border-t-orange-500 animate-spin" />
+                    </div>
+                  )}
+
+                  {/* Beginning-of-conversation label */}
+                  {!hasMore && messages.length > 0 && !msgLoading && (
+                    <div className="flex items-center gap-3 py-6">
+                      <div className="flex-1 h-px bg-gray-100" />
+                      <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest whitespace-nowrap">
+                        Beginning of conversation
+                      </span>
+                      <div className="flex-1 h-px bg-gray-100" />
+                    </div>
+                  )}
+
+                  {/* Initial loading skeleton */}
+                  {msgLoading ? (
+                    <div className="space-y-6 pt-4 pb-4">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className={`flex gap-4 ${i % 2 === 0 ? "flex-row-reverse" : ""}`}>
+                          <div className="w-10 h-10 rounded-xl bg-gray-100 animate-pulse shrink-0" />
+                          <div className={`space-y-2 flex-1 flex flex-col ${i % 2 === 0 ? "items-end" : "items-start"}`}>
+                            <div className={`h-12 rounded-3xl animate-pulse bg-gray-100 ${i % 2 === 0 ? "w-48" : "w-72"}`} />
+                            <div className="h-2 w-16 bg-gray-100 rounded animate-pulse" />
                           </div>
                         </div>
-                      );
-                    })
+                      ))}
+                    </div>
+                  ) : messages.length === 0 ? (
+                    <div className="text-center text-gray-400 text-sm py-10">No messages in this conversation</div>
+                  ) : (
+                    <div className="space-y-8 pt-4 pb-4">
+                      {messages.map((msg) => {
+                        const isUser = msg.role === "user";
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`flex gap-5 w-full ${isUser ? "flex-row-reverse" : ""}`}
+                          >
+                            {/* Avatar */}
+                            <div
+                              className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-white shadow-md"
+                              style={{ backgroundColor: isUser ? "#191c1d" : "#a93200" }}
+                            >
+                              <span
+                                className="material-symbols-outlined"
+                                style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}
+                              >
+                                {isUser ? "person" : "smart_toy"}
+                              </span>
+                            </div>
+
+                            {/* Bubble + timestamp */}
+                            <div className={`space-y-2 flex flex-col ${isUser ? "items-end" : "items-start"} flex-1`}>
+                              <div
+                                className={`px-6 py-4 text-sm leading-relaxed ${
+                                  isUser
+                                    ? "text-white rounded-[2rem] rounded-tr-none"
+                                    : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
+                                }`}
+                                style={isUser ? { backgroundColor: "#a93200" } : {}}
+                              >
+                                {msg.content}
+                              </div>
+                              <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">
+                                {isUser ? "Visitor" : "Bot"} · {formatTime(msg.created_at)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
+
+                  {/* Bottom anchor for initial scroll */}
                   <div ref={messagesEndRef} />
                 </div>
               </div>
@@ -269,7 +373,7 @@ export default function ConversationsPage() {
         {/* ── Right: Metadata Sidebar ── */}
         {selected && (
           <aside className="hidden xl:flex w-72 shrink-0 flex-col overflow-y-auto p-7 border-l border-gray-100" style={{ backgroundColor: "#f3f4f5" }}>
-            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-7">Metadata & Context</h4>
+            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-7">Metadata &amp; Context</h4>
 
             <div className="space-y-8">
               {/* Page URL */}
@@ -300,7 +404,7 @@ export default function ConversationsPage() {
                 </div>
               </div>
 
-              {/* Customer Info — always visible */}
+              {/* Customer Info */}
               <div className="space-y-3">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Customer Info</label>
                 <div className="space-y-2">
