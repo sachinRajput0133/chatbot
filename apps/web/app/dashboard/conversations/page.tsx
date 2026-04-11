@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
 
@@ -27,6 +27,13 @@ export default function ConversationsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [copiedId, setCopiedId] = useState(false);
+
+  const copyVisitorId = useCallback((id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  }, []);
 
   useEffect(() => {
     api.listConversations()
@@ -41,15 +48,25 @@ export default function ConversationsPage() {
 
   async function openConversation(conv: any) {
     setSelected(conv);
-    const msgs = await api.getMessages(conv.id);
+    const [msgs, fresh] = await Promise.all([
+      api.getMessages(conv.id),
+      api.getConversation(conv.id),
+    ]);
     setMessages(msgs);
+    setSelected(fresh);
   }
 
-  const filtered = conversations.filter((c) =>
-    search === "" ||
-    c.visitor_id?.toLowerCase().includes(search.toLowerCase()) ||
-    c.page_url?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = conversations.filter((c) => {
+    if (search === "") return true;
+    const q = search.toLowerCase();
+    return (
+      c.visitor_name?.toLowerCase().includes(q) ||
+      c.visitor_email?.toLowerCase().includes(q) ||
+      c.visitor_phone?.toLowerCase().includes(q) ||
+      c.visitor_id?.toLowerCase().includes(q) ||
+      c.page_url?.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="flex flex-col" style={{ height: "100vh", fontFamily: "'Manrope', sans-serif" }}>
@@ -283,44 +300,73 @@ export default function ConversationsPage() {
                 </div>
               </div>
 
-              {/* Identity */}
-              {(selected.visitor_name || selected.visitor_email || selected.visitor_phone || selected.external_user_id) && (
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Identity</label>
-                  <div className="space-y-2">
-                    {selected.visitor_name && (
-                      <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm">
-                        <span className="text-gray-400 font-medium">Name</span>
-                        <span className="font-black text-gray-900">{selected.visitor_name}</span>
+              {/* Customer Info — always visible */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Customer Info</label>
+                <div className="space-y-2">
+                  {[
+                    { icon: "person", label: "Name", value: selected.visitor_name, color: "text-gray-900" },
+                    { icon: "mail", label: "Email", value: selected.visitor_email, color: "text-orange-600" },
+                    { icon: "phone", label: "Phone", value: selected.visitor_phone, color: "text-gray-900" },
+                  ].map(({ icon, label, value, color }) => (
+                    <div key={label} className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm gap-2">
+                      <span className="text-gray-400 font-medium flex items-center gap-1.5 shrink-0">
+                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>{icon}</span>
+                        {label}
+                      </span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={`font-bold truncate ${value ? color : "text-gray-300"}`}>
+                          {value || "—"}
+                        </span>
+                        {value && (
+                          <button
+                            onClick={() => navigator.clipboard.writeText(value)}
+                            title={`Copy ${label}`}
+                            className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>content_copy</span>
+                          </button>
+                        )}
                       </div>
-                    )}
-                    {selected.visitor_email && (
-                      <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm">
-                        <span className="text-gray-400 font-medium">Email</span>
-                        <span className="font-bold text-orange-600 truncate ml-2 max-w-[140px]">{selected.visitor_email}</span>
+                    </div>
+                  ))}
+                  {selected.external_user_id && (
+                    <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm gap-2">
+                      <span className="text-gray-400 font-medium flex items-center gap-1.5 shrink-0">
+                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>badge</span>
+                        User ID
+                      </span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono text-[10px] text-gray-500 truncate">{selected.external_user_id}</span>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(selected.external_user_id)}
+                          title="Copy User ID"
+                          className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>content_copy</span>
+                        </button>
                       </div>
-                    )}
-                    {selected.visitor_phone && (
-                      <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm">
-                        <span className="text-gray-400 font-medium">Phone</span>
-                        <span className="font-black text-gray-900">{selected.visitor_phone}</span>
-                      </div>
-                    )}
-                    {selected.external_user_id && (
-                      <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm">
-                        <span className="text-gray-400 font-medium">User ID</span>
-                        <span className="font-mono text-[10px] text-gray-500 truncate ml-2 max-w-[140px]">{selected.external_user_id}</span>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
 
               {/* Visitor ID */}
               <div className="space-y-3">
                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Visitor ID</label>
-                <div className="p-3.5 rounded-2xl bg-white text-[10px] font-mono text-gray-500 break-all border border-gray-200 shadow-sm">
-                  {selected.visitor_id}
+                <div className="flex items-center gap-2 p-3.5 rounded-2xl bg-white border border-gray-200 shadow-sm">
+                  <span className="flex-1 text-[10px] font-mono text-gray-500 break-all leading-relaxed">
+                    {selected.visitor_id}
+                  </span>
+                  <button
+                    onClick={() => copyVisitorId(selected.visitor_id)}
+                    title="Copy Visitor ID"
+                    className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
+                      {copiedId ? "check" : "content_copy"}
+                    </span>
+                  </button>
                 </div>
               </div>
 
@@ -331,8 +377,12 @@ export default function ConversationsPage() {
                   <span className="px-3 py-1.5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-black uppercase tracking-widest border border-orange-200">
                     Web Chat
                   </span>
-                  <span className="px-3 py-1.5 rounded-full bg-gray-200 text-gray-600 text-[10px] font-black uppercase tracking-widest">
-                    {selected.visitor_name ? "Identified" : "Visitor"}
+                  <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                    selected.visitor_name || selected.visitor_email
+                      ? "bg-green-100 text-green-700 border border-green-200"
+                      : "bg-gray-200 text-gray-600"
+                  }`}>
+                    {selected.visitor_name || selected.visitor_email ? "Identified" : "Anonymous"}
                   </span>
                 </div>
               </div>

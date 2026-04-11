@@ -88,6 +88,9 @@ export const api = {
 
   listConversations: (page = 1) => request<any[]>(`/api/conversations/?page=${page}`),
 
+  getConversation: (conversationId: string) =>
+    request<any>(`/api/conversations/${conversationId}`),
+
   getMessages: (conversationId: string) =>
     request<any[]>(`/api/conversations/${conversationId}/messages`),
 

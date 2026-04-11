@@ -283,6 +283,8 @@ async def handle_chat(
     # Extract contact info from the user's message and update conversation record
     if lead_config and lead_config.enabled:
         extracted = lead_capture_service.extract_contact_info(message)
+        if extracted.get("name") and not conv.visitor_name:
+            conv.visitor_name = extracted["name"]
         if extracted.get("email") and not conv.visitor_email:
             conv.visitor_email = extracted["email"]
         if extracted.get("phone") and not conv.visitor_phone:

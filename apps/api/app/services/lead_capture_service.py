@@ -64,14 +64,39 @@ def extract_contact_info(text: str) -> dict:
     """Extract name, email, phone from a message using simple regex patterns."""
     info: dict[str, str] = {}
 
+    # Email
     email_match = re.search(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", text)
     if email_match:
         info["email"] = email_match.group(0)
 
+    # Phone
     phone_match = re.search(r"(\+?\d[\d\s\-().]{7,}\d)", text)
     if phone_match:
         candidate = re.sub(r"[\s\-().]", "", phone_match.group(0))
         if 7 <= len(candidate) <= 15:
             info["phone"] = phone_match.group(0).strip()
+
+    # Name — match common patterns like "my name is X", "I'm X", "I am X", "call me X"
+    filler = {
+        "me", "you", "here", "there", "sure", "ok", "okay", "back", "yes", "no",
+        "hi", "hey", "hello", "thanks", "thank", "please", "sorry",
+    }
+    name_match = re.search(
+        r"(?:my name is|i am|i'm|call me|this is|name is)\s+([A-Za-z][a-zA-Z]+(?:\s+[A-Za-z][a-zA-Z]+){0,2})",
+        text,
+        re.IGNORECASE,
+    )
+    if name_match:
+        name = name_match.group(1).strip()
+        if 2 <= len(name) <= 50 and name.lower() not in filler:
+            info["name"] = name
+    # Fallback: if the whole message looks like a plain name (1-3 words, capitalised,
+    # no punctuation, no digits) treat it as a name response
+    if "name" not in info and not info.get("email") and not info.get("phone"):
+        plain = text.strip()
+        if re.fullmatch(r"[A-Za-z]+(?:\s+[A-Za-z]+){0,2}", plain):
+            words = plain.split()
+            if all(len(w) >= 2 for w in words) and plain.lower() not in filler:
+                info["name"] = plain.title()
 
     return info
