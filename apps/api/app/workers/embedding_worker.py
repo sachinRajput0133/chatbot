@@ -19,6 +19,23 @@ from sqlalchemy import select
 openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 
+def _fetch_url_text(url: str) -> str:
+    """Fetch a URL and extract visible text using BeautifulSoup."""
+    import httpx
+    from bs4 import BeautifulSoup
+
+    resp = httpx.get(url, timeout=30, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; ChatbotBot/1.0)"})
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "lxml")
+    # Remove script/style noise
+    for tag in soup(["script", "style", "nav", "footer", "header", "noscript"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n")
+    # Collapse blank lines
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return "\n".join(lines)
+
+
 def _extract_text(file_path: str, file_type: DocumentType) -> str:
     if file_type == DocumentType.pdf:
         with pdfplumber.open(file_path) as pdf:
@@ -28,7 +45,10 @@ def _extract_text(file_path: str, file_type: DocumentType) -> str:
     elif file_type == DocumentType.docx:
         doc = docx.Document(file_path)
         return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
-    else:  # txt or manual
+    elif file_type == DocumentType.url:
+        url = Path(file_path).read_text(encoding="utf-8").strip()
+        return _fetch_url_text(url)
+    else:  # txt, manual, faq
         return Path(file_path).read_text(encoding="utf-8")
 
 

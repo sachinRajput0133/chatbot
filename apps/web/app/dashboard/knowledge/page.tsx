@@ -11,6 +11,10 @@ function getFileIcon(fileType: string): { icon: string; bg: string; color: strin
       return { icon: "description", bg: "bg-blue-100", color: "text-blue-600" };
     case "manual":
       return { icon: "sticky_note_2", bg: "bg-purple-100", color: "text-purple-600" };
+    case "faq":
+      return { icon: "quiz", bg: "bg-green-100", color: "text-green-600" };
+    case "url":
+      return { icon: "language", bg: "bg-cyan-100", color: "text-cyan-600" };
     default:
       return { icon: "description", bg: "bg-gray-100", color: "text-gray-600" };
   }
@@ -39,6 +43,11 @@ interface EditState {
   loading: boolean;
 }
 
+interface FAQItem {
+  question: string;
+  answer: string;
+}
+
 export default function KnowledgePage() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -46,7 +55,11 @@ export default function KnowledgePage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [showManual, setShowManual] = useState(false);
+  const [showFAQ, setShowFAQ] = useState(false);
   const [manual, setManual] = useState({ title: "", content: "" });
+  const [faqItems, setFaqItems] = useState<FAQItem[]>([{ question: "", answer: "" }]);
+  const [showURL, setShowURL] = useState(false);
+  const [crawlURL, setCrawlURL] = useState("");
   const [editState, setEditState] = useState<EditState | null>(null);
   const [loadingContent, setLoadingContent] = useState<string | null>(null);
 
@@ -87,6 +100,47 @@ export default function KnowledgePage() {
     } finally {
       setUploading(false);
     }
+  }
+
+  async function handleCrawlSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!crawlURL.trim()) return;
+    setUploading(true);
+    try {
+      await api.crawlURL(crawlURL.trim());
+      setCrawlURL("");
+      setShowURL(false);
+      await loadDocs();
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleFAQSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const valid = faqItems.filter((i) => i.question.trim() && i.answer.trim());
+    if (!valid.length) return;
+    setUploading(true);
+    try {
+      await api.addFAQKnowledge(valid);
+      setFaqItems([{ question: "", answer: "" }]);
+      setShowFAQ(false);
+      await loadDocs();
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function updateFAQItem(index: number, field: "question" | "answer", value: string) {
+    setFaqItems((prev) => prev.map((item, i) => i === index ? { ...item, [field]: value } : item));
+  }
+
+  function addFAQRow() {
+    setFaqItems((prev) => [...prev, { question: "", answer: "" }]);
+  }
+
+  function removeFAQRow(index: number) {
+    setFaqItems((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function openEdit(doc: any) {
@@ -183,6 +237,118 @@ export default function KnowledgePage() {
         </div>
       )}
 
+      {/* URL Crawl Modal */}
+      {showURL && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Train from URL</h2>
+                <p className="text-xs text-gray-400 mt-0.5">We'll crawl the page and extract its content automatically.</p>
+              </div>
+              <button onClick={() => setShowURL(false)} className="p-1 text-gray-400 hover:text-gray-700 transition-colors">
+                <span className="material-symbols-outlined" style={{ fontSize: "22px" }}>close</span>
+              </button>
+            </div>
+            <form onSubmit={handleCrawlSubmit} className="p-6 flex flex-col gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Page URL</label>
+                <input
+                  type="url"
+                  required
+                  placeholder="https://yourwebsite.com/about"
+                  value={crawlURL}
+                  onChange={(e) => setCrawlURL(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                />
+                <p className="text-xs text-gray-400 mt-2">Single page crawl — paste your homepage, about page, pricing page, etc.</p>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
+                >
+                  {uploading ? "Submitting..." : "Crawl & Index"}
+                </button>
+                <button type="button" onClick={() => setShowURL(false)} className="px-6 py-2.5 text-gray-500 text-sm font-bold hover:text-gray-900 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* FAQ Modal */}
+      {showFAQ && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Add FAQ</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Each Q&A pair is indexed separately for precise answers.</p>
+              </div>
+              <button onClick={() => setShowFAQ(false)} className="p-1 text-gray-400 hover:text-gray-700 transition-colors">
+                <span className="material-symbols-outlined" style={{ fontSize: "22px" }}>close</span>
+              </button>
+            </div>
+            <form onSubmit={handleFAQSubmit} className="flex flex-col overflow-hidden">
+              <div className="overflow-y-auto p-6 flex flex-col gap-4">
+                {faqItems.map((item, i) => (
+                  <div key={i} className="bg-gray-50 rounded-xl p-4 flex flex-col gap-3 relative">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Q&A #{i + 1}</span>
+                      {faqItems.length > 1 && (
+                        <button type="button" onClick={() => removeFAQRow(i)} className="p-1 text-gray-300 hover:text-red-400 transition-colors">
+                          <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>delete</span>
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Question"
+                      value={item.question}
+                      onChange={(e) => updateFAQItem(i, "question", e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-green-500/30"
+                    />
+                    <textarea
+                      required
+                      rows={3}
+                      placeholder="Answer"
+                      value={item.answer}
+                      onChange={(e) => updateFAQItem(i, "answer", e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-green-500/30 resize-none"
+                    />
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addFAQRow}
+                  className="flex items-center gap-2 text-sm text-green-600 font-bold hover:text-green-700 transition-colors self-start"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>add_circle</span>
+                  Add another Q&A
+                </button>
+              </div>
+              <div className="px-6 py-4 border-t border-gray-100 flex gap-3 shrink-0">
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
+                >
+                  {uploading ? "Saving..." : `Save ${faqItems.filter(i => i.question.trim()).length || ""} FAQ${faqItems.filter(i => i.question.trim()).length !== 1 ? "s" : ""}`}
+                </button>
+                <button type="button" onClick={() => setShowFAQ(false)} className="px-6 py-2.5 text-gray-500 text-sm font-bold hover:text-gray-900 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Hero Header */}
       <div className="mb-12 flex flex-col md:flex-row justify-between items-end gap-6">
         <div className="max-w-2xl">
@@ -206,6 +372,20 @@ export default function KnowledgePage() {
               disabled={uploading}
             />
           </label>
+          <button
+            onClick={() => { setShowURL(true); setShowFAQ(false); setShowManual(false); }}
+            className="flex items-center gap-2 px-6 py-4 bg-cyan-600 text-white rounded-2xl hover:bg-cyan-700 transition-all font-bold shadow-lg"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>language</span>
+            Add URL
+          </button>
+          <button
+            onClick={() => { setShowFAQ(true); setShowManual(false); setShowURL(false); }}
+            className="flex items-center gap-2 px-6 py-4 bg-green-600 text-white rounded-2xl hover:bg-green-700 transition-all font-bold shadow-lg"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>quiz</span>
+            Add FAQ
+          </button>
           <button
             onClick={() => setShowManual(!showManual)}
             className="flex items-center gap-2 px-6 py-4 bg-gray-200 text-gray-900 rounded-2xl hover:bg-gray-300 transition-all font-bold"
@@ -326,6 +506,7 @@ export default function KnowledgePage() {
               const { icon, bg, color } = getFileIcon(doc.file_type);
               const isManual = doc.file_type === "manual";
               const isLoadingThis = loadingContent === doc.id;
+              const typeLabel = doc.file_type === "manual" ? "Manual Input" : doc.file_type === "faq" ? "FAQ" : doc.file_type === "url" ? "Web Page" : doc.file_type?.toUpperCase();
 
               return (
                 <div
@@ -344,7 +525,7 @@ export default function KnowledgePage() {
                       <p className="text-xs text-gray-400">
                         {doc.created_at ? new Date(doc.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         {" · "}
-                        {isManual ? "Manual Input" : doc.file_type?.toUpperCase()}
+                        {typeLabel}
                       </p>
                     </div>
                   </div>

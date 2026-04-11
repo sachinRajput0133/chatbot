@@ -9,6 +9,14 @@ function getToken(): string | null {
   return localStorage.getItem("cb_token");
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -20,7 +28,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(err.detail || "Request failed");
+    throw new ApiError(err.detail || "Request failed", res.status);
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -61,6 +69,17 @@ export const api = {
 
   updateManualDocument: (id: string, data: { title: string; content: string }) =>
     request<any>(`/api/knowledge/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+
+  addFAQKnowledge: (items: { question: string; answer: string }[]) =>
+    request<any[]>("/api/knowledge/faq", { method: "POST", body: JSON.stringify({ items }) }),
+
+  crawlURL: (url: string) =>
+    request<any>("/api/knowledge/crawl", { method: "POST", body: JSON.stringify({ url }) }),
+
+  getLeadConfig: () => request<any>("/api/lead-capture/config"),
+
+  updateLeadConfig: (data: any) =>
+    request<any>("/api/lead-capture/config", { method: "PUT", body: JSON.stringify(data) }),
 
   getWidgetConfig: () => request<any>("/api/widget/config"),
 

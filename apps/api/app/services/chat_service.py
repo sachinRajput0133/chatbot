@@ -16,6 +16,7 @@ from app.models.tenant import Tenant, Plan
 from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.models.widget import WidgetConfig
 from app.schemas.chat import VisitorInfo
+from app.services import lead_capture_service
 
 PLAN_LIMITS = {
     Plan.free: 100,
@@ -28,6 +29,47 @@ DEFAULT_SYSTEM_PROMPT = """You are a helpful customer support assistant for {bus
 Answer questions based ONLY on the provided context.
 If the answer is not in the context, say "I don't have that information. Please contact us directly."
 Keep responses concise and friendly. Do not make up information."""
+
+
+def _build_system_prompt(widget: "WidgetConfig | None", business_name: str) -> str:
+    """Build system prompt from explicit override, brand voice fields, or default."""
+    if widget and widget.system_prompt:
+        return widget.system_prompt
+
+    if widget and any([widget.what_we_do, widget.tone_of_voice, widget.target_audience,
+                       widget.brand_values, widget.unique_selling_proposition,
+                       widget.company_email, widget.company_phone, widget.business_hours]):
+        lines = [f"You are a helpful assistant for {widget.bot_name} ({business_name})."]
+        if widget.tone_of_voice:
+            lines.append(f"Tone of voice: {widget.tone_of_voice}.")
+        if widget.what_we_do:
+            lines.append(f"What we do: {widget.what_we_do}.")
+        if widget.target_audience:
+            lines.append(f"Our target audience: {widget.target_audience}.")
+        if widget.brand_values:
+            lines.append(f"Our values: {widget.brand_values}.")
+        if widget.unique_selling_proposition:
+            lines.append(f"What makes us unique: {widget.unique_selling_proposition}.")
+        contact_parts = []
+        if widget.business_hours:
+            contact_parts.append(f"Business hours: {widget.business_hours}")
+        if widget.company_email:
+            contact_parts.append(f"Email: {widget.company_email}")
+        if widget.company_phone:
+            contact_parts.append(f"Phone: {widget.company_phone}")
+        if widget.company_address:
+            contact_parts.append(f"Address: {widget.company_address}")
+        if contact_parts:
+            lines.append(". ".join(contact_parts) + ".")
+        lines.append(
+            "Answer questions based ONLY on the provided context. "
+            "If the answer is not in the context, say \"I don't have that information — "
+            f"please contact us{f' at {widget.company_email}' if widget.company_email else ' directly'}.\" "
+            "Keep responses concise and friendly. Do not make up information."
+        )
+        return "\n".join(lines)
+
+    return DEFAULT_SYSTEM_PROMPT.format(business_name=business_name)
 
 
 # ── Provider detection ─────────────────────────────────────────────────────────
@@ -225,14 +267,26 @@ async def handle_chat(
 
     result = await db.execute(select(WidgetConfig).where(WidgetConfig.tenant_id == tenant.id))
     widget = result.scalar_one_or_none()
-    system_prompt = (widget.system_prompt if widget and widget.system_prompt else None) or \
-        DEFAULT_SYSTEM_PROMPT.format(business_name=tenant.business_name)
+    system_prompt = _build_system_prompt(widget, tenant.business_name)
+
+    # Append lead collection instructions if configured
+    lead_config = await lead_capture_service.get_config(tenant.id, db)
+    if lead_config:
+        system_prompt += lead_capture_service.build_lead_collection_prompt(lead_config)
 
     # If user is identified, use a stable visitor_id based on their external user ID
     if user_info and user_info.user_id:
         visitor_id = f"usr_{user_info.user_id}"
 
     conv = await _get_or_create_conversation(tenant.id, visitor_id, conversation_id, page_url, db, user_info)
+
+    # Extract contact info from the user's message and update conversation record
+    if lead_config and lead_config.enabled:
+        extracted = lead_capture_service.extract_contact_info(message)
+        if extracted.get("email") and not conv.visitor_email:
+            conv.visitor_email = extracted["email"]
+        if extracted.get("phone") and not conv.visitor_phone:
+            conv.visitor_phone = extracted["phone"]
 
     embedding = await _embed_query(message)
     context_chunks = await _retrieve_chunks(tenant.id, message, embedding, db)

@@ -31,3 +31,16 @@ class DocumentContentOut(BaseModel):
     id: uuid.UUID
     title: str
     content: str
+
+
+class FAQItem(BaseModel):
+    question: str
+    answer: str
+
+
+class FAQRequest(BaseModel):
+    items: list[FAQItem]
+
+
+class CrawlRequest(BaseModel):
+    url: str

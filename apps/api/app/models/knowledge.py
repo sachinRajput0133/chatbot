@@ -13,6 +13,8 @@ class DocumentType(str, enum.Enum):
     txt = "txt"
     docx = "docx"
     manual = "manual"  # text entered directly in dashboard
+    faq = "faq"        # structured Q&A pairs
+    url = "url"        # web page crawled from URL
 
 
 class DocumentStatus(str, enum.Enum):

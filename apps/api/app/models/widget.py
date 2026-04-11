@@ -30,4 +30,16 @@ class WidgetConfig(Base):
     # Optional: system prompt override per tenant
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Brand Voice fields — used to auto-generate system prompt when system_prompt is blank
+    company_website: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    company_email: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    company_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    company_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    business_hours: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tone_of_voice: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    target_audience: Mapped[str | None] = mapped_column(Text, nullable=True)
+    brand_values: Mapped[str | None] = mapped_column(Text, nullable=True)
+    what_we_do: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unique_selling_proposition: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="widget_config")

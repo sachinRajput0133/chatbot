@@ -1,6 +1,5 @@
 import os
 import uuid
-import re
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -163,6 +162,69 @@ async def update_manual_document(
         delete(KnowledgeChunk).where(KnowledgeChunk.document_id == doc.id)
     )
     doc.chunk_count = 0
+
+    await db.commit()
+    await db.refresh(doc)
+    return doc
+
+
+async def create_faq_documents(
+    tenant_id: uuid.UUID,
+    items: list[dict],  # list of {"question": str, "answer": str}
+    db: AsyncSession,
+) -> list[KnowledgeDocument]:
+    """Create one KnowledgeDocument per FAQ item, each stored as a text file."""
+    tenant_dir = Path(settings.UPLOAD_DIR) / str(tenant_id)
+    tenant_dir.mkdir(parents=True, exist_ok=True)
+
+    docs = []
+    for item in items:
+        question = item["question"].strip()
+        answer = item["answer"].strip()
+        content = f"Q: {question}\nA: {answer}"
+
+        doc = KnowledgeDocument(
+            tenant_id=tenant_id,
+            filename=question[:200],  # use question as display name, truncated
+            file_type=DocumentType.faq,
+            status=DocumentStatus.pending,
+        )
+        db.add(doc)
+        await db.flush()  # get doc.id
+
+        file_path = tenant_dir / f"{doc.id}.txt"
+        file_path.write_text(content)
+        doc.file_path = str(file_path)
+
+        docs.append(doc)
+
+    await db.commit()
+    for doc in docs:
+        await db.refresh(doc)
+    return docs
+
+
+async def create_url_document(
+    tenant_id: uuid.UUID,
+    url: str,
+    db: AsyncSession,
+) -> KnowledgeDocument:
+    """Create a KnowledgeDocument for a URL — the worker will crawl and embed it."""
+    doc = KnowledgeDocument(
+        tenant_id=tenant_id,
+        filename=url[:255],
+        file_type=DocumentType.url,
+        status=DocumentStatus.pending,
+    )
+    db.add(doc)
+    await db.flush()
+
+    # Store the URL in a temp file so the worker knows what to crawl
+    tenant_dir = Path(settings.UPLOAD_DIR) / str(tenant_id)
+    tenant_dir.mkdir(parents=True, exist_ok=True)
+    url_file = tenant_dir / f"{doc.id}.url"
+    url_file.write_text(url)
+    doc.file_path = str(url_file)
 
     await db.commit()
     await db.refresh(doc)

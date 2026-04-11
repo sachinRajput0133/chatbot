@@ -11,6 +11,7 @@ const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
   { href: "/dashboard/knowledge", label: "Knowledge Base", icon: "psychology" },
   { href: "/dashboard/customize", label: "Customize Bot", icon: "tune" },
+  { href: "/dashboard/goals", label: "Bot Goals", icon: "track_changes" },
   { href: "/dashboard/embed", label: "Embed Code", icon: "code" },
   { href: "/dashboard/conversations", label: "Conversations", icon: "forum" },
   { href: "/dashboard/analytics", label: "Analytics", icon: "insights" },

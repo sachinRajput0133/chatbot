@@ -15,6 +15,7 @@ from app.models.user import User, UserRole
 from app.models.widget import WidgetConfig
 from app.routers import auth, knowledge, widget, chat, conversations, analytics, billing, static
 from app.routers import platform as platform_router
+from app.routers import lead_capture as lead_capture_router
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
 # Applied per-route with @limiter.limit("N/period") decorator.
@@ -98,6 +99,7 @@ app.include_router(analytics.router)
 app.include_router(billing.router)
 app.include_router(static.router)
 app.include_router(platform_router.router)
+app.include_router(lead_capture_router.router)
 
 
 @app.get("/health")
