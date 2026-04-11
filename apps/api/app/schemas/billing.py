@@ -7,8 +7,10 @@ class CreateCheckoutRequest(BaseModel):
 
 
 class CheckoutResponse(BaseModel):
-    checkout_url: str
-    gateway: str  # stripe | razorpay
+    gateway: str                    # stripe | razorpay
+    checkout_url: str | None = None # Stripe only — redirect URL
+    subscription_id: str | None = None  # Razorpay only — open modal with this
+    key_id: str | None = None           # Razorpay only — publishable key
 
 
 class SubscriptionOut(BaseModel):

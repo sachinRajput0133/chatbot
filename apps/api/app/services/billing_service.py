@@ -44,18 +44,50 @@ PLAN_ENUM_MAP = {
 }
 
 
-async def create_checkout(tenant: Tenant, plan: str, db: AsyncSession) -> tuple[str, str]:
-    """Returns (checkout_url, gateway)."""
+def _stripe_configured() -> bool:
+    key = settings.STRIPE_SECRET_KEY
+    return bool(key) and not key.startswith("sk_test_...") and key != "sk_test_..."
+
+
+def _razorpay_configured() -> bool:
+    key = settings.RAZORPAY_KEY_ID
+    return bool(key) and not key.startswith("rzp_test_...") and key != "rzp_test_..."
+
+
+async def create_checkout(tenant: Tenant, plan: str, db: AsyncSession) -> dict:
+    """Returns a dict with gateway info.
+
+    Stripe:   {"gateway": "stripe",   "checkout_url": "https://..."}
+    Razorpay: {"gateway": "razorpay", "subscription_id": "sub_...", "key_id": "rzp_..."}
+
+    Gateway selection:
+    - India accounts → Razorpay (if configured) else Stripe
+    - Other accounts → Stripe (if configured) else Razorpay
+    - If neither is configured → raise clear error
+    """
     if plan not in ("starter", "growth", "enterprise"):
         raise HTTPException(status_code=400, detail="Invalid plan")
 
-    if tenant.country == "IN":
-        return await _razorpay_checkout(tenant, plan, db)
+    prefer_razorpay = tenant.country == "IN"
+
+    if prefer_razorpay:
+        if _razorpay_configured():
+            return await _razorpay_checkout(tenant, plan, db)
+        elif _stripe_configured():
+            return await _stripe_checkout(tenant, plan, db)
     else:
-        return await _stripe_checkout(tenant, plan, db)
+        if _stripe_configured():
+            return await _stripe_checkout(tenant, plan, db)
+        elif _razorpay_configured():
+            return await _razorpay_checkout(tenant, plan, db)
+
+    raise HTTPException(
+        status_code=503,
+        detail="Payment gateway not configured. Please set Stripe or Razorpay keys in your environment."
+    )
 
 
-async def _stripe_checkout(tenant: Tenant, plan: str, db: AsyncSession) -> tuple[str, str]:
+async def _stripe_checkout(tenant: Tenant, plan: str, db: AsyncSession) -> dict:
     price_id = STRIPE_PRICE_IDS.get(plan)
     if not price_id:
         raise HTTPException(status_code=400, detail="Stripe price not configured")
@@ -74,10 +106,10 @@ async def _stripe_checkout(tenant: Tenant, plan: str, db: AsyncSession) -> tuple
         cancel_url=f"{settings.FRONTEND_URL}/dashboard/billing?cancelled=true",
         metadata={"tenant_id": str(tenant.id), "plan": plan},
     )
-    return session.url, "stripe"
+    return {"gateway": "stripe", "checkout_url": session.url}
 
 
-async def _razorpay_checkout(tenant: Tenant, plan: str, db: AsyncSession) -> tuple[str, str]:
+async def _razorpay_checkout(tenant: Tenant, plan: str, db: AsyncSession) -> dict:
     plan_id = RAZORPAY_PLAN_IDS.get(plan)
     if not plan_id:
         raise HTTPException(status_code=400, detail="Razorpay plan not configured")
@@ -89,9 +121,12 @@ async def _razorpay_checkout(tenant: Tenant, plan: str, db: AsyncSession) -> tup
         "total_count": 12,
         "notes": {"tenant_id": str(tenant.id), "plan": plan},
     })
-    # Razorpay: redirect to payment page
-    checkout_url = f"https://rzp.io/l/{subscription['id']}"
-    return checkout_url, "razorpay"
+    # Return subscription_id + key so frontend opens Razorpay checkout.js modal
+    return {
+        "gateway": "razorpay",
+        "subscription_id": subscription["id"],
+        "key_id": settings.RAZORPAY_KEY_ID,
+    }
 
 
 async def handle_stripe_webhook(payload: bytes, sig_header: str, db: AsyncSession):

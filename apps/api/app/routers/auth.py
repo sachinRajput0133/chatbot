@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -11,22 +13,26 @@ from app.schemas.auth import (
 from app.services import auth_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/signup", response_model=TokenResponse)
-async def signup(data: SignupRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def signup(request: Request, data: SignupRequest, db: AsyncSession = Depends(get_db)):
     _, token = await auth_service.signup(data, db)
     return TokenResponse(access_token=token)
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
     _, token = await auth_service.login(data, db)
     return TokenResponse(access_token=token)
 
 
 @router.post("/google", response_model=TokenResponse)
-async def google_auth(data: GoogleAuthRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def google_auth(request: Request, data: GoogleAuthRequest, db: AsyncSession = Depends(get_db)):
     _, token = await auth_service.google_auth(data, db)
     return TokenResponse(access_token=token)
 

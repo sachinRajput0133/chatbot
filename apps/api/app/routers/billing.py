@@ -18,8 +18,8 @@ async def create_checkout(
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
-    url, gateway = await billing_service.create_checkout(tenant, data.plan, db)
-    return CheckoutResponse(checkout_url=url, gateway=gateway)
+    result = await billing_service.create_checkout(tenant, data.plan, db)
+    return CheckoutResponse(**result)
 
 
 @router.get("/subscription", response_model=SubscriptionOut | None)

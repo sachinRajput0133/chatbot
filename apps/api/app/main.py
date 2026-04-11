@@ -1,6 +1,10 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -11,6 +15,11 @@ from app.models.user import User, UserRole
 from app.models.widget import WidgetConfig
 from app.routers import auth, knowledge, widget, chat, conversations, analytics, billing, static
 from app.routers import platform as platform_router
+
+# ── Rate limiter ───────────────────────────────────────────────────────────────
+# Applied per-route with @limiter.limit("N/period") decorator.
+# Default 200 req/min applies to any route that doesn't set its own limit.
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 
 
 async def _seed_platform_admin():
@@ -63,10 +72,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Rate limiting ──────────────────────────────────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Public routes (chat, widget-config) need to allow ALL origins
 # because widget.js is embedded on arbitrary client websites.
-# We handle per-route CORS via the route decorators below.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

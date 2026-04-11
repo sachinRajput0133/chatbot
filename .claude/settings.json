@@ -42,7 +42,11 @@
       "Bash(curl -s --max-time 5 \"https://httpbin.org/get\")",
       "Bash(curl -s --max-time 5 \"https://www.googleapis.com/oauth2/v3/certs\")",
       "Bash(.venv/bin/pip list:*)",
-      "Bash(curl -s -X POST http://localhost:8000/api/auth/google -H 'Content-Type: application/json' -d '{\"credential\": \"invalid.token.here\"}')"
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/google -H 'Content-Type: application/json' -d '{\"credential\": \"invalid.token.here\"}')",
+      "Bash(grep -v \"^$\")",
+      "Bash(ls docker-compose*)",
+      "Bash(ls apps/api/Dockerfile* apps/web/Dockerfile*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('scripts',{}\\)\\)\")"
     ],
     "additionalDirectories": [
       "/home/knovator/personal/chatbot/.claude"

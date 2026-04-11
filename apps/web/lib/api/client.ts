@@ -69,7 +69,12 @@ export const api = {
   getAnalytics: () => request<any>("/api/analytics/summary"),
 
   createCheckout: (plan: string) =>
-    request<{ checkout_url: string; gateway: string }>("/api/billing/checkout", {
+    request<{
+      gateway: string;
+      checkout_url?: string;       // Stripe
+      subscription_id?: string;    // Razorpay
+      key_id?: string;             // Razorpay
+    }>("/api/billing/checkout", {
       method: "POST",
       body: JSON.stringify({ plan }),
     }),

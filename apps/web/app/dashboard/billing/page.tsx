@@ -3,6 +3,24 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
 
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
+function loadRazorpayScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (document.getElementById("razorpay-sdk")) { resolve(); return; }
+    const s = document.createElement("script");
+    s.id = "razorpay-sdk";
+    s.src = "https://checkout.razorpay.com/v1/checkout.js";
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("Failed to load Razorpay SDK"));
+    document.body.appendChild(s);
+  });
+}
+
 const PLANS = [
   {
     key: "free",
@@ -65,8 +83,36 @@ export default function BillingPage() {
   async function handleUpgrade(plan: string) {
     setLoading(plan);
     try {
-      const { checkout_url } = await api.createCheckout(plan);
-      window.location.href = checkout_url;
+      const result = await api.createCheckout(plan);
+
+      if (result.gateway === "stripe") {
+        window.location.href = result.checkout_url;
+
+      } else if (result.gateway === "razorpay") {
+        await loadRazorpayScript();
+        const options = {
+          key: result.key_id,
+          subscription_id: result.subscription_id,
+          name: me?.tenant?.business_name || "Chatbot Platform",
+          description: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
+          image: "/logo.png",
+          prefill: {
+            email: me?.tenant?.email || "",
+          },
+          theme: { color: "#6366f1" },
+          handler: function () {
+            window.location.href = "/dashboard/billing?success=true";
+          },
+          modal: {
+            ondismiss: function () {
+              setLoading(null);
+            },
+          },
+        };
+        const rzp = new window.Razorpay(options);
+        rzp.open();
+        return; // keep loading until modal closes
+      }
     } catch (e: any) {
       alert(e.message);
     } finally {
