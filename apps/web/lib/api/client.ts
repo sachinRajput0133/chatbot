@@ -56,6 +56,12 @@ export const api = {
 
   deleteDocument: (id: string) => request<void>(`/api/knowledge/${id}`, { method: "DELETE" }),
 
+  getDocumentContent: (id: string) =>
+    request<{ id: string; title: string; content: string }>(`/api/knowledge/${id}/content`),
+
+  updateManualDocument: (id: string, data: { title: string; content: string }) =>
+    request<any>(`/api/knowledge/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+
   getWidgetConfig: () => request<any>("/api/widget/config"),
 
   updateWidgetConfig: (data: any) =>

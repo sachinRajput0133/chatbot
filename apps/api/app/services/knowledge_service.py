@@ -109,6 +109,66 @@ async def list_documents(tenant_id: uuid.UUID, db: AsyncSession) -> list[Knowled
     return list(result.scalars().all())
 
 
+async def get_manual_content(doc_id: uuid.UUID, tenant_id: uuid.UUID, db: AsyncSession) -> dict:
+    result = await db.execute(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.id == doc_id,
+            KnowledgeDocument.tenant_id == tenant_id,
+            KnowledgeDocument.file_type == DocumentType.manual,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    content = ""
+    if doc.file_path and os.path.exists(doc.file_path):
+        content = Path(doc.file_path).read_text()
+
+    return {"id": str(doc.id), "title": doc.filename, "content": content}
+
+
+async def update_manual_document(
+    doc_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    title: str,
+    content: str,
+    db: AsyncSession,
+) -> KnowledgeDocument:
+    result = await db.execute(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.id == doc_id,
+            KnowledgeDocument.tenant_id == tenant_id,
+            KnowledgeDocument.file_type == DocumentType.manual,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc.filename = title
+    doc.status = DocumentStatus.pending
+
+    if doc.file_path:
+        Path(doc.file_path).write_text(content)
+    else:
+        tenant_dir = Path(settings.UPLOAD_DIR) / str(tenant_id)
+        tenant_dir.mkdir(parents=True, exist_ok=True)
+        file_path = tenant_dir / f"{doc.id}.txt"
+        file_path.write_text(content)
+        doc.file_path = str(file_path)
+
+    # Delete old chunks so they get re-embedded
+    await db.execute(
+        delete(KnowledgeChunk).where(KnowledgeChunk.document_id == doc.id)
+    )
+    doc.chunk_count = 0
+
+    await db.commit()
+    await db.refresh(doc)
+    return doc
+
+
 async def delete_document(doc_id: uuid.UUID, tenant_id: uuid.UUID, db: AsyncSession):
     result = await db.execute(
         select(KnowledgeDocument).where(

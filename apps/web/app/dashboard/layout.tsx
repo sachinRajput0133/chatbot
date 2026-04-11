@@ -93,7 +93,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main content */}
-      <main className="ml-64 flex-1 overflow-y-auto">{children}</main>
+      <main className="ml-64 flex-1 overflow-y-auto p-8">{children}</main>
 
       {/* Owner preview: load their own chatbot so they can test it (bottom-right) */}
       <ChatbotWidget />

@@ -20,3 +20,14 @@ class DocumentOut(BaseModel):
 class ManualKnowledgeRequest(BaseModel):
     title: str
     content: str
+
+
+class ManualKnowledgeUpdate(BaseModel):
+    title: str
+    content: str
+
+
+class DocumentContentOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    content: str

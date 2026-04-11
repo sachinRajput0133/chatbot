@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user_id
-from app.schemas.knowledge import DocumentOut, ManualKnowledgeRequest
+from app.schemas.knowledge import DocumentOut, ManualKnowledgeRequest, ManualKnowledgeUpdate, DocumentContentOut
 from app.services import knowledge_service, auth_service
 from app.workers.embedding_worker import _process_document_async
 
@@ -61,6 +61,30 @@ async def list_documents(
 ):
     tenant = await _get_tenant(user_id, db)
     return await knowledge_service.list_documents(tenant.id, db)
+
+
+@router.get("/{doc_id}/content", response_model=DocumentContentOut)
+async def get_document_content(
+    doc_id: uuid.UUID,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant(user_id, db)
+    return await knowledge_service.get_manual_content(doc_id, tenant.id, db)
+
+
+@router.put("/{doc_id}", response_model=DocumentOut)
+async def update_manual_document(
+    doc_id: uuid.UUID,
+    data: ManualKnowledgeUpdate,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant(user_id, db)
+    doc = await knowledge_service.update_manual_document(doc_id, tenant.id, data.title, data.content, db)
+    background_tasks.add_task(_process_document_async, str(doc.id))
+    return doc
 
 
 @router.delete("/{doc_id}", status_code=204)

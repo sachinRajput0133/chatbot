@@ -18,10 +18,10 @@ function getFileIcon(fileType: string): { icon: string; bg: string; color: strin
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { bg: string; text: string; dot: string; label: string }> = {
-    indexed: { bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500", label: "indexed" },
-    processing: { bg: "bg-orange-50", text: "text-orange-700", dot: "bg-orange-500 animate-pulse", label: "processing" },
-    pending: { bg: "bg-yellow-50", text: "text-yellow-700", dot: "bg-yellow-500 animate-pulse", label: "pending" },
-    failed: { bg: "bg-red-50", text: "text-red-700", dot: "bg-red-500", label: "failed" },
+    indexed: { bg: "bg-green-50", text: "text-green-700", dot: "bg-green-500", label: "Indexed" },
+    processing: { bg: "bg-orange-50", text: "text-orange-700", dot: "bg-orange-500 animate-pulse", label: "Processing" },
+    pending: { bg: "bg-yellow-50", text: "text-yellow-700", dot: "bg-yellow-500 animate-pulse", label: "Pending" },
+    failed: { bg: "bg-red-50", text: "text-red-700", dot: "bg-red-500", label: "Failed" },
   };
   const s = map[status] ?? map.pending;
   return (
@@ -32,6 +32,13 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+interface EditState {
+  id: string;
+  title: string;
+  content: string;
+  loading: boolean;
+}
+
 export default function KnowledgePage() {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -40,6 +47,8 @@ export default function KnowledgePage() {
   const [uploading, setUploading] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [manual, setManual] = useState({ title: "", content: "" });
+  const [editState, setEditState] = useState<EditState | null>(null);
+  const [loadingContent, setLoadingContent] = useState<string | null>(null);
 
   async function loadDocs() {
     try {
@@ -80,6 +89,35 @@ export default function KnowledgePage() {
     }
   }
 
+  async function openEdit(doc: any) {
+    setLoadingContent(doc.id);
+    try {
+      const data = await api.getDocumentContent(doc.id);
+      setEditState({ id: doc.id, title: data.title, content: data.content, loading: false });
+    } catch (e: any) {
+      alert(e.message || "Failed to load content");
+    } finally {
+      setLoadingContent(null);
+    }
+  }
+
+  async function handleEditSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editState) return;
+    setEditState({ ...editState, loading: true });
+    try {
+      await api.updateManualDocument(editState.id, {
+        title: editState.title,
+        content: editState.content,
+      });
+      setEditState(null);
+      await loadDocs();
+    } catch (err: any) {
+      alert(err.message || "Failed to save");
+      setEditState({ ...editState, loading: false });
+    }
+  }
+
   async function deleteDoc(id: string) {
     if (!confirm("Delete this document?")) return;
     await api.deleteDocument(id);
@@ -89,7 +127,62 @@ export default function KnowledgePage() {
   const totalChunks = docs.reduce((sum, d) => sum + (d.chunk_count || 0), 0);
 
   return (
-    <div className="p-10 max-w-6xl" style={{ fontFamily: "'Manrope', sans-serif" }}>
+    <div className="max-w-6xl" style={{ fontFamily: "'Manrope', sans-serif" }}>
+      {/* Edit modal */}
+      {editState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-gray-900">Edit Manual Text</h2>
+              <button
+                onClick={() => setEditState(null)}
+                className="p-1 text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: "22px" }}>close</span>
+              </button>
+            </div>
+            <form onSubmit={handleEditSave} className="p-6 flex flex-col gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Title</label>
+                <input
+                  type="text"
+                  required
+                  value={editState.title}
+                  onChange={(e) => setEditState({ ...editState, title: e.target.value })}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-1.5">Content</label>
+                <textarea
+                  required
+                  rows={10}
+                  value={editState.content}
+                  onChange={(e) => setEditState({ ...editState, content: e.target.value })}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/30 resize-none"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={editState.loading}
+                  className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-bold disabled:opacity-60 hover:opacity-90 transition-opacity"
+                >
+                  {editState.loading ? "Saving..." : "Save & Re-index"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditState(null)}
+                  className="px-6 py-2.5 text-gray-500 text-sm font-bold hover:text-gray-900 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Hero Header */}
       <div className="mb-12 flex flex-col md:flex-row justify-between items-end gap-6">
         <div className="max-w-2xl">
@@ -208,15 +301,13 @@ export default function KnowledgePage() {
       <div className="bg-white rounded-[2rem] p-10" style={{ boxShadow: "0px 4px 20px rgba(25,28,29,0.06)" }}>
         <div className="flex justify-between items-center mb-10">
           <h2 className="text-2xl font-extrabold tracking-tight">Indexed Sources</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={loadDocs}
-              className="p-2 hover:bg-gray-50 rounded-lg transition-colors"
-              title="Refresh"
-            >
-              <span className="material-symbols-outlined text-gray-400" style={{ fontSize: "22px" }}>refresh</span>
-            </button>
-          </div>
+          <button
+            onClick={loadDocs}
+            className="p-2 hover:bg-gray-50 rounded-lg transition-colors"
+            title="Refresh"
+          >
+            <span className="material-symbols-outlined text-gray-400" style={{ fontSize: "22px" }}>refresh</span>
+          </button>
         </div>
 
         {loading ? (
@@ -233,6 +324,9 @@ export default function KnowledgePage() {
           <div className="space-y-2">
             {docs.map((doc) => {
               const { icon, bg, color } = getFileIcon(doc.file_type);
+              const isManual = doc.file_type === "manual";
+              const isLoadingThis = loadingContent === doc.id;
+
               return (
                 <div
                   key={doc.id}
@@ -250,7 +344,7 @@ export default function KnowledgePage() {
                       <p className="text-xs text-gray-400">
                         {doc.created_at ? new Date(doc.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         {" · "}
-                        {doc.file_type === "manual" ? "Manual Input" : doc.file_type?.toUpperCase()}
+                        {isManual ? "Manual Input" : doc.file_type?.toUpperCase()}
                       </p>
                     </div>
                   </div>
@@ -267,6 +361,20 @@ export default function KnowledgePage() {
 
                   {/* Actions */}
                   <div className="col-span-2 flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {isManual && (
+                      <button
+                        onClick={() => openEdit(doc)}
+                        disabled={isLoadingThis}
+                        className="p-2 text-gray-400 hover:text-indigo-600 transition-colors rounded-lg hover:bg-indigo-50 disabled:opacity-50"
+                        title="Edit"
+                      >
+                        {isLoadingThis ? (
+                          <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>edit</span>
+                        )}
+                      </button>
+                    )}
                     <button
                       onClick={() => deleteDoc(doc.id)}
                       className="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
