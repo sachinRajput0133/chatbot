@@ -35,6 +35,10 @@ export default function ConversationsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [msgLoading, setMsgLoading] = useState(false);
 
+  // ── Agent input state ──────────────────────────────────────────────
+  const [agentInput, setAgentInput] = useState("");
+  const [sendingAgent, setSendingAgent] = useState(false);
+
   // ── Scroll refs ────────────────────────────────────────────────────
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -81,6 +85,44 @@ export default function ConversationsPage() {
       });
     } finally {
       setMsgLoading(false);
+    }
+  }
+
+  // ── Toggle AI / Human Mode ────────────────────────────────────────
+  async function toggleMode() {
+    if (!selected) return;
+    const newMode = selected.mode === "human" ? "ai" : "human";
+    try {
+      const updated = await api.setConversationMode(selected.id, newMode);
+      setSelected(updated);
+      
+      // Update in the list as well to keep cache fresh although it's not super necessary
+      setConversations((prev: any[]) => prev.map((c: any) => c.id === updated.id ? updated : c));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to toggle mode");
+    }
+  }
+
+  // ── Send Agent Reply ──────────────────────────────────────────────
+  async function handleSendAgent() {
+    if (!selected || !agentInput.trim() || sendingAgent) return;
+    
+    setSendingAgent(true);
+    try {
+      const newMsg = await api.sendAgentReply(selected.id, agentInput);
+      setAgentInput("");
+      setMessages((prev: any[]) => [...prev, newMsg]);
+      setSelected((prev: any) => prev ? { ...prev, last_message_at: newMsg.created_at } : null);
+      
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to send message");
+    } finally {
+      setSendingAgent(false);
     }
   }
 
@@ -254,6 +296,11 @@ export default function ConversationsPage() {
                       <span className="px-2 py-0.5 rounded bg-green-100 text-[10px] font-black text-green-700 uppercase">
                         Live
                       </span>
+                      {selected.mode === "human" && (
+                        <span className="px-2 py-0.5 rounded bg-indigo-100 text-[10px] font-black text-indigo-700 uppercase ml-1 shadow-sm">
+                          Human Mode
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 flex-wrap mt-0.5">
                       {selected.visitor_email && (
@@ -271,9 +318,22 @@ export default function ConversationsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs font-bold text-gray-400">
+                  <span className="text-xs font-bold text-gray-400 mr-2">
                     {selected.message_count ?? messages.length} messages
                   </span>
+                  <button
+                    onClick={toggleMode}
+                    className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 outline-none flex items-center gap-2 ${
+                      selected.mode === "human" 
+                        ? "bg-indigo-600 text-white shadow-md hover:bg-indigo-700 ring-2 ring-indigo-500/20" 
+                        : "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>
+                      {selected.mode === "human" ? "person" : "smart_toy"}
+                    </span>
+                    {selected.mode === "human" ? "Resume AI" : "Takeover"}
+                  </button>
                 </div>
               </div>
 
@@ -322,6 +382,8 @@ export default function ConversationsPage() {
                     <div className="space-y-8 pt-4 pb-4">
                       {messages.map((msg) => {
                         const isUser = msg.role === "user";
+                        const isAgent = msg.role === "agent";
+                        
                         return (
                           <div
                             key={msg.id}
@@ -330,13 +392,13 @@ export default function ConversationsPage() {
                             {/* Avatar */}
                             <div
                               className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-white shadow-md"
-                              style={{ backgroundColor: isUser ? "#191c1d" : "#a93200" }}
+                              style={{ backgroundColor: isUser ? "#191c1d" : isAgent ? "#4f46e5" : "#a93200" }}
                             >
                               <span
                                 className="material-symbols-outlined"
                                 style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}
                               >
-                                {isUser ? "person" : "smart_toy"}
+                                {isUser ? "person" : isAgent ? "support_agent" : "smart_toy"}
                               </span>
                             </div>
 
@@ -346,14 +408,16 @@ export default function ConversationsPage() {
                                 className={`px-6 py-4 text-sm leading-relaxed ${
                                   isUser
                                     ? "text-white rounded-[2rem] rounded-tr-none"
-                                    : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
+                                    : isAgent
+                                      ? "text-white rounded-[2rem] rounded-tl-none bg-indigo-600 shadow-md"
+                                      : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
                                 }`}
                                 style={isUser ? { backgroundColor: "#a93200" } : {}}
                               >
                                 {msg.content}
                               </div>
                               <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">
-                                {isUser ? "Visitor" : "Bot"} · {formatTime(msg.created_at)}
+                                {isUser ? "Visitor" : isAgent ? "Human Agent" : "Bot"} · {formatTime(msg.created_at)}
                               </span>
                             </div>
                           </div>
@@ -366,6 +430,44 @@ export default function ConversationsPage() {
                   <div ref={messagesEndRef} />
                 </div>
               </div>
+
+              {/* Agent Input Bar (Only visible in human mode) */}
+              {selected.mode === "human" && (
+                <div className="px-10 py-6 bg-white border-t border-gray-100 shrink-0 shadow-[0_-10px_40px_rgba(0,0,0,0.03)] z-10">
+                  <div className="flex items-end gap-3 max-w-3xl mx-auto">
+                    <div className="flex-1 relative">
+                      <textarea
+                        value={agentInput}
+                        onChange={(e) => setAgentInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendAgent();
+                          }
+                        }}
+                        placeholder="Type your reply as a human agent..."
+                        className="w-full resize-none bg-gray-50 border border-gray-200 rounded-3xl pl-6 pr-6 pt-4 pb-4 outline-none text-sm text-gray-800 transition-all focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10"
+                        rows={1}
+                        style={{ minHeight: "56px", maxHeight: "150px" }}
+                      />
+                    </div>
+                    <button
+                      onClick={handleSendAgent}
+                      disabled={!agentInput.trim() || sendingAgent}
+                      className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 disabled:opacity-50 hover:bg-indigo-700 transition-all text-white shadow-lg shadow-indigo-500/30 outline-none focus:ring-4 focus:ring-indigo-500/30"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}>
+                        send
+                      </span>
+                    </button>
+                  </div>
+                  <div className="text-center mt-3">
+                    <span className="text-[10px] font-bold text-gray-400">
+                      Press <kbd className="font-mono text-gray-500 bg-gray-100 px-1 py-0.5 rounded">Enter</kbd> to send
+                    </span>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </section>

@@ -290,6 +290,23 @@ async def handle_chat(
         if extracted.get("phone") and not conv.visitor_phone:
             conv.visitor_phone = extracted["phone"]
 
+    # ── Human Agent Takeover ──
+    # If a human is talking, save the user message and skip the AI completely.
+    if conv.mode == "human":
+        db.add(WebMessage(conversation_id=conv.id, role=MessageRole.user, content=message))
+        await db.commit()
+        await append_conversation_message(str(bot_id), visitor_id, "user", message)
+        
+        # Publish the new user message to the websocket channel so if the visitor has multiple tabs
+        # or if we ever add dashboard WS, it broadcasts.
+        from app.core.redis import publish_to_conversation
+        await publish_to_conversation(
+            str(conv.id), 
+            {"role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
+        )
+        return "__human_mode__", conv.id
+
+
     embedding = await _embed_query(message)
     context_chunks = await _retrieve_chunks(tenant.id, message, embedding, db)
 

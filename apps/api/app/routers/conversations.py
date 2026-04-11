@@ -5,8 +5,8 @@ from sqlalchemy import select, func
 
 from app.core.database import get_db
 from app.core.security import get_current_user_id
-from app.models.conversation import WebConversation, WebMessage
-from app.schemas.conversation import ConversationOut, MessageOut, MessagesPage
+from app.models.conversation import WebConversation, WebMessage, MessageRole
+from app.schemas.conversation import ConversationOut, MessageOut, MessagesPage, SetModeIn, AgentReplyIn
 from app.services import auth_service
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
@@ -160,3 +160,80 @@ async def get_messages(
         has_more=has_more,
         next_cursor=next_cursor,
     )
+
+
+@router.patch("/{conversation_id}/mode", response_model=ConversationOut)
+async def set_conversation_mode(
+    conversation_id: uuid.UUID,
+    payload: SetModeIn,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle a conversation between AI and human mode."""
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    result = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
+            WebConversation.tenant_id == tenant.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if payload.mode not in ["ai", "human"]:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Mode must be 'ai' or 'human'")
+
+    conv.mode = payload.mode
+    await db.commit()
+    await db.refresh(conv)
+    
+    count_result = await db.execute(select(func.count()).where(WebMessage.conversation_id == conv.id))
+    msg_count = count_result.scalar() or 0
+    out = ConversationOut.model_validate(conv)
+    out.message_count = msg_count
+    return out
+
+
+@router.post("/{conversation_id}/agent-reply", response_model=MessageOut)
+async def agent_reply(
+    conversation_id: uuid.UUID,
+    payload: AgentReplyIn,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save an agent reply and broadcast it to the widget via Redis pub/sub."""
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    result = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
+            WebConversation.tenant_id == tenant.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    from datetime import datetime, timezone
+    
+    msg = WebMessage(
+        conversation_id=conv.id,
+        role=MessageRole.agent,
+        content=payload.message,
+    )
+    db.add(msg)
+    conv.last_message_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(msg)
+
+    # Broadcast to widget
+    from app.core.redis import publish_to_conversation
+    await publish_to_conversation(
+        str(conv.id),
+        {"role": "agent", "content": payload.message, "created_at": msg.created_at.isoformat()}
+    )
+
+    return msg

@@ -157,6 +157,7 @@ declare global {
       .cb-msg { max-width: 80%; padding: 9px 13px; border-radius: 14px; font-size: 14px; line-height: 1.45; word-wrap: break-word; }
       .cb-msg.cb-user { background: ${color}; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
       .cb-msg.cb-bot { background: #f1f3f4; color: #1a1a1a; align-self: flex-start; border-bottom-left-radius: 4px; }
+      .cb-msg.cb-agent { background: #4f46e5; color: white; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #4338ca; }
       .cb-typing { display: flex; gap: 4px; align-items: center; padding: 10px 13px; }
       .cb-dot { width: 7px; height: 7px; border-radius: 50%; background: #999; animation: cb-bounce 1.2s infinite; }
       .cb-dot:nth-child(2) { animation-delay: 0.2s; }
@@ -239,6 +240,29 @@ declare global {
       }
     });
 
+    let ws: WebSocket | null = null;
+    function connectWebSocket(convId: string) {
+      if (ws) return;
+      const protocol = API_URL.startsWith("https") ? "wss" : "ws";
+      const host = API_URL ? API_URL.replace(/^https?:\/\//, "") : window.location.host;
+      ws = new WebSocket(`${protocol}://${host}/ws/${convId}`);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.role === "agent") {
+            appendMessage(data.content, "agent", messagesEl);
+            if (!isOpen) {
+               // Flash or indicate unread? We just keep it simple and maybe bump up
+            }
+          }
+        } catch(e) {}
+      };
+      ws.onclose = () => { ws = null; };
+    }
+
+    // Connect if we already have a conversation
+    if (conversationId) connectWebSocket(conversationId);
+
     async function submit() {
       const text = inputEl.value.trim();
       if (!text || sendBtn.disabled) return;
@@ -252,8 +276,11 @@ declare global {
 
       try {
         const reply = await sendMessage(text);
+        if (!ws && conversationId) connectWebSocket(conversationId);
         typing.remove();
-        appendMessage(reply, "bot", messagesEl);
+        if (reply !== "__human_mode__") {
+          appendMessage(reply, "bot", messagesEl);
+        }
       } catch (e: any) {
         typing.remove();
         appendMessage(e.message || "Something went wrong. Please try again.", "bot", messagesEl);
@@ -278,7 +305,7 @@ declare global {
     });
   }
 
-  function appendMessage(text: string, role: "user" | "bot", container: HTMLElement): HTMLElement {
+  function appendMessage(text: string, role: "user" | "bot" | "agent", container: HTMLElement): HTMLElement {
     const div = document.createElement("div");
     div.className = `cb-msg cb-${role}`;
     div.textContent = text;

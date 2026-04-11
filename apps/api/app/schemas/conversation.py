@@ -37,6 +37,18 @@ class ConversationOut(BaseModel):
     visitor_email: str | None = None
     visitor_phone: str | None = None
     external_user_id: str | None = None
+    mode: str = "ai"   # 'ai' | 'human'
 
     class Config:
         from_attributes = True
+
+
+class AgentReplyIn(BaseModel):
+    """Payload for a human agent sending a reply to a visitor."""
+    message: str
+
+
+class SetModeIn(BaseModel):
+    """Payload for toggling a conversation between AI and human mode."""
+    mode: str  # 'ai' | 'human'
+

@@ -96,6 +96,18 @@ export const api = {
       `/api/conversations/${conversationId}/messages${before ? `?before=${before}` : ""}`
     ),
 
+  setConversationMode: (conversationId: string, mode: "ai" | "human") =>
+    request<any>(`/api/conversations/${conversationId}/mode`, {
+      method: "PATCH",
+      body: JSON.stringify({ mode }),
+    }),
+
+  sendAgentReply: (conversationId: string, message: string) =>
+    request<any>(`/api/conversations/${conversationId}/agent-reply`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
+
   getAnalytics: () => request<any>("/api/analytics/summary"),
 
   createCheckout: (plan: string) =>

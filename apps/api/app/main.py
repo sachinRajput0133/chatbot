@@ -13,7 +13,7 @@ from app.core.security import hash_password
 from app.models.tenant import Tenant, Plan
 from app.models.user import User, UserRole
 from app.models.widget import WidgetConfig
-from app.routers import auth, knowledge, widget, chat, conversations, analytics, billing, static
+from app.routers import auth, knowledge, widget, chat, conversations, analytics, billing, static, ws
 from app.routers import platform as platform_router
 from app.routers import lead_capture as lead_capture_router
 
@@ -85,7 +85,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -100,6 +100,7 @@ app.include_router(billing.router)
 app.include_router(static.router)
 app.include_router(platform_router.router)
 app.include_router(lead_capture_router.router)
+app.include_router(ws.router)
 
 
 @app.get("/health")

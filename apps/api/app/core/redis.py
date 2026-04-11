@@ -39,3 +39,19 @@ async def clear_conversation_history(bot_id: str, visitor_id: str):
     r = await get_redis()
     key = f"conv:{bot_id}:{visitor_id}"
     await r.delete(key)
+
+
+# ── Real-time pub/sub ──────────────────────────────────────────────────────────
+
+CONV_CHANNEL_PREFIX = "chat"
+
+
+async def publish_to_conversation(conversation_id: str, payload: dict):
+    """Publish a message payload to the conversation's Redis pub/sub channel.
+
+    All WebSocket clients subscribed to that conversation will receive it.
+    """
+    r = await get_redis()
+    channel = f"{CONV_CHANNEL_PREFIX}:{conversation_id}"
+    await r.publish(channel, json.dumps(payload))
+

@@ -9,7 +9,8 @@ from app.core.database import Base
 
 class MessageRole(str, enum.Enum):
     user = "user"
-    assistant = "assistant"
+    assistant = "assistant"   # AI-generated reply
+    agent = "agent"           # Human agent reply from dashboard
 
 
 class WebConversation(Base):
@@ -31,6 +32,7 @@ class WebConversation(Base):
     last_message_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
+    mode: Mapped[str] = mapped_column(String(10), nullable=False, default="ai")  # 'ai' | 'human'
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="conversations")
     messages: Mapped[list["WebMessage"]] = relationship(
