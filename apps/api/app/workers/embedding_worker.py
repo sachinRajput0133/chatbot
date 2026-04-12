@@ -24,7 +24,15 @@ def _fetch_url_text(url: str) -> str:
     import httpx
     from bs4 import BeautifulSoup
 
-    resp = httpx.get(url, timeout=30, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; ChatbotBot/1.0)"})
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; ChatbotBot/1.0)"}
+    try:
+        resp = httpx.get(url, timeout=30, follow_redirects=True, headers=headers)
+    except (httpx.ConnectError, Exception) as exc:
+        if "SSL" in str(exc) or "certificate" in str(exc).lower():
+            # SSL verification failure — retry without verification (dev/self-signed certs)
+            resp = httpx.get(url, timeout=30, follow_redirects=True, verify=False, headers=headers)
+        else:
+            raise
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "lxml")
     # Remove script/style noise
