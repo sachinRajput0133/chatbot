@@ -18,6 +18,7 @@ class ContactRequest(BaseModel):
     name: str | None = None
     email: str | None = None
     phone: str | None = None
+    address: str | None = None
     page_url: str | None = None
 
 
@@ -69,6 +70,8 @@ async def save_visitor_contact(
         conv.visitor_email = data.email
     if data.phone:
         conv.visitor_phone = data.phone
+    if data.address:
+        conv.visitor_address = data.address
 
     await db.commit()
     await db.refresh(conv)

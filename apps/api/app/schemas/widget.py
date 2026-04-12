@@ -8,6 +8,7 @@ class LeadCaptureInfo(BaseModel):
     collect_name: bool = True
     collect_email: bool = True
     collect_phone: bool = False
+    collect_address: bool = False
     title: str = "Before we start..."
     subtitle: str = "Please share your details so we can help you better."
 

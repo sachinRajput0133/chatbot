@@ -514,6 +514,7 @@ export default function ConversationsPage() {
                     { icon: "person", label: "Name", value: selected.visitor_name, color: "text-gray-900" },
                     { icon: "mail", label: "Email", value: selected.visitor_email, color: "text-orange-600" },
                     { icon: "phone", label: "Phone", value: selected.visitor_phone, color: "text-gray-900" },
+                    { icon: "home", label: "Address", value: selected.visitor_address, color: "text-gray-900" },
                   ].map(({ icon, label, value, color }) => (
                     <div key={label} className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm gap-2">
                       <span className="text-gray-400 font-medium flex items-center gap-1.5 shrink-0">

@@ -25,6 +25,7 @@ class WebConversation(Base):
     visitor_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     visitor_email: Mapped[str | None] = mapped_column(String(256), nullable=True)
     visitor_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    visitor_address: Mapped[str | None] = mapped_column(String(512), nullable=True)
     external_user_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

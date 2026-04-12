@@ -36,6 +36,7 @@ class ConversationOut(BaseModel):
     visitor_name: str | None = None
     visitor_email: str | None = None
     visitor_phone: str | None = None
+    visitor_address: str | None = None
     external_user_id: str | None = None
     mode: str = "ai"   # 'ai' | 'human'
 

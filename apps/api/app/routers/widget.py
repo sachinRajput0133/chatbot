@@ -22,6 +22,7 @@ def _build_lead_capture_info(lc: LeadCaptureConfig | None) -> LeadCaptureInfo:
         collect_name=lc.collect_name,
         collect_email=lc.collect_email,
         collect_phone=lc.collect_phone,
+        collect_address=lc.collect_address,
     )
 
 
