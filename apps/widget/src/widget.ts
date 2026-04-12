@@ -20,12 +20,22 @@ interface ChatbotConfig {
   user?: VisitorUser;
 }
 
+interface LeadCaptureInfo {
+  enabled: boolean;
+  collect_name: boolean;
+  collect_email: boolean;
+  collect_phone: boolean;
+  title: string;
+  subtitle: string;
+}
+
 interface WidgetConfig {
   bot_name: string;
   primary_color: string;
   welcome_message: string;
   position: "bottom-right" | "bottom-left";
   avatar_url: string | null;
+  lead_capture: LeadCaptureInfo;
 }
 
 declare global {
@@ -52,11 +62,9 @@ declare global {
   const userInfo: VisitorUser | null = config.user || null;
 
   function getVisitorId(): string {
-    // If an identified user is provided, use a stable ID derived from their userId
     if (userInfo?.userId) {
       return `usr_${userInfo.userId}`;
     }
-    // Anonymous visitor: persist a random ID in localStorage
     const key = `cb_visitor_${BOT_ID}`;
     let id = localStorage.getItem(key);
     if (!id) {
@@ -72,6 +80,14 @@ declare global {
 
   function setConversationId(id: string) {
     localStorage.setItem(`cb_conv_${BOT_ID}`, id);
+  }
+
+  function isLeadSubmitted(): boolean {
+    return localStorage.getItem(`cb_lead_${BOT_ID}`) === "1";
+  }
+
+  function markLeadSubmitted() {
+    localStorage.setItem(`cb_lead_${BOT_ID}`, "1");
   }
 
   const visitorId = getVisitorId();
@@ -114,6 +130,26 @@ declare global {
     conversationId = data.conversation_id;
     setConversationId(conversationId!);
     return data.reply;
+  }
+
+  // ── Submit lead form ───────────────────────────────────────────────────────
+  async function submitContact(name: string, email: string, phone: string): Promise<string | null> {
+    const body: Record<string, string> = {
+      visitor_id: visitorId,
+      page_url: window.location.href,
+    };
+    if (name) body.name = name;
+    if (email) body.email = email;
+    if (phone) body.phone = phone;
+
+    const res = await fetch(`${API_URL}/api/chat/${BOT_ID}/contact`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.conversation_id || null;
   }
 
   // ── Inject styles ──────────────────────────────────────────────────────────
@@ -179,11 +215,119 @@ declare global {
       #cb-send:disabled { opacity: 0.5; cursor: not-allowed; }
       #cb-send svg { width: 18px; height: 18px; fill: white; }
       #cb-powered { text-align: center; font-size: 10px; color: #bbb; padding: 4px 0 8px; }
+
+      /* ── Lead capture form ──────────────────────────────────────────────── */
+      #cb-lead-form {
+        flex: 1; overflow-y: auto; padding: 20px 16px; display: flex;
+        flex-direction: column; gap: 14px;
+      }
+      #cb-lead-form .cb-lf-title { font-size: 15px; font-weight: 600; color: #111; margin: 0; }
+      #cb-lead-form .cb-lf-sub { font-size: 13px; color: #666; margin: 0; line-height: 1.45; }
+      #cb-lead-form .cb-lf-fields { display: flex; flex-direction: column; gap: 10px; }
+      #cb-lead-form .cb-lf-field { display: flex; flex-direction: column; gap: 4px; }
+      #cb-lead-form .cb-lf-field label { font-size: 12px; font-weight: 500; color: #444; }
+      #cb-lead-form .cb-lf-field input {
+        border: 1px solid #ddd; border-radius: 8px; padding: 9px 12px;
+        font-size: 14px; outline: none; transition: border-color 0.15s;
+      }
+      #cb-lead-form .cb-lf-field input:focus { border-color: ${color}; }
+      #cb-lead-form .cb-lf-submit {
+        background: ${color}; color: white; border: none; border-radius: 8px;
+        padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer;
+        transition: opacity 0.2s; margin-top: 2px;
+      }
+      #cb-lead-form .cb-lf-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+      #cb-lead-form .cb-lf-skip {
+        background: none; border: none; font-size: 12px; color: #999;
+        cursor: pointer; text-decoration: underline; text-align: center; padding: 0;
+      }
+      #cb-lead-form .cb-lf-error { font-size: 12px; color: #e53e3e; }
+
       @media (max-width: 480px) {
         #cb-panel { width: calc(100vw - 24px); bottom: 88px; }
       }
     `;
     document.head.appendChild(style);
+  }
+
+  // ── Lead capture form view ─────────────────────────────────────────────────
+  function buildLeadForm(
+    lc: LeadCaptureInfo,
+    messagesEl: HTMLElement,
+    onDone: () => void,
+  ): HTMLElement {
+    const form = document.createElement("div");
+    form.id = "cb-lead-form";
+
+    const fields: { id: string; label: string; type: string; placeholder: string }[] = [];
+    if (lc.collect_name) fields.push({ id: "cb-lf-name", label: "Your Name", type: "text", placeholder: "Jane Smith" });
+    if (lc.collect_email) fields.push({ id: "cb-lf-email", label: "Email Address", type: "email", placeholder: "jane@example.com" });
+    if (lc.collect_phone) fields.push({ id: "cb-lf-phone", label: "Phone Number", type: "tel", placeholder: "+1 555 000 0000" });
+
+    form.innerHTML = `
+      <p class="cb-lf-title">${escHtml(lc.title)}</p>
+      <p class="cb-lf-sub">${escHtml(lc.subtitle)}</p>
+      <div class="cb-lf-fields">
+        ${fields.map(f => `
+          <div class="cb-lf-field">
+            <label for="${f.id}">${f.label}</label>
+            <input id="${f.id}" type="${f.type}" placeholder="${f.placeholder}" autocomplete="on">
+          </div>
+        `).join("")}
+      </div>
+      <span class="cb-lf-error" style="display:none"></span>
+      <button class="cb-lf-submit">Start Chat</button>
+      <button class="cb-lf-skip">Skip for now</button>
+    `;
+
+    const submitBtn = form.querySelector(".cb-lf-submit") as HTMLButtonElement;
+    const skipBtn = form.querySelector(".cb-lf-skip") as HTMLButtonElement;
+    const errorEl = form.querySelector(".cb-lf-error") as HTMLElement;
+
+    async function handleSubmit() {
+      const nameVal = lc.collect_name ? (form.querySelector("#cb-lf-name") as HTMLInputElement)?.value.trim() : "";
+      const emailVal = lc.collect_email ? (form.querySelector("#cb-lf-email") as HTMLInputElement)?.value.trim() : "";
+      const phoneVal = lc.collect_phone ? (form.querySelector("#cb-lf-phone") as HTMLInputElement)?.value.trim() : "";
+
+      // Basic validation — require at least one field filled
+      if (lc.collect_email && emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+        errorEl.textContent = "Please enter a valid email address.";
+        errorEl.style.display = "";
+        return;
+      }
+      errorEl.style.display = "none";
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Saving...";
+
+      try {
+        const convId = await submitContact(nameVal, emailVal, phoneVal);
+        if (convId) {
+          conversationId = convId;
+          setConversationId(convId);
+        }
+        markLeadSubmitted();
+        // Replace form with messages view
+        form.remove();
+        messagesEl.style.display = "";
+        onDone();
+      } catch {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Start Chat";
+        errorEl.textContent = "Something went wrong. Please try again.";
+        errorEl.style.display = "";
+      }
+    }
+
+    submitBtn.addEventListener("click", handleSubmit);
+    skipBtn.addEventListener("click", () => {
+      markLeadSubmitted();
+      form.remove();
+      messagesEl.style.display = "";
+      onDone();
+    });
+
+    return form;
   }
 
   // ── Build DOM ──────────────────────────────────────────────────────────────
@@ -223,22 +367,61 @@ declare global {
     const bubble = document.getElementById("cb-bubble")!;
     const panel = document.getElementById("cb-panel")!;
     const messagesEl = document.getElementById("cb-messages")!;
+    const inputRow = document.getElementById("cb-input-row")!;
     const inputEl = document.getElementById("cb-input") as HTMLTextAreaElement;
     const sendBtn = document.getElementById("cb-send") as HTMLButtonElement;
 
-    // Show welcome message
-    appendMessage(wc.welcome_message, "bot", messagesEl);
+    // Determine whether to show lead form on first open
+    const shouldShowLeadForm =
+      wc.lead_capture.enabled &&
+      !isLeadSubmitted() &&
+      !userInfo?.userId; // Skip form if we already have an identified user
+
+    function showChatView() {
+      // Show welcome message and focus input
+      appendMessage(wc.welcome_message, "bot", messagesEl);
+      inputEl.focus();
+    }
+
+    // If lead form is needed, hide the messages + input row initially
+    let leadFormReady = false;
+    if (shouldShowLeadForm) {
+      messagesEl.style.display = "none";
+      inputRow.style.display = "none";
+    }
 
     bubble.addEventListener("click", () => {
       isOpen = !isOpen;
       panel.classList.toggle("cb-hidden", !isOpen);
+
       if (isOpen) {
-        inputEl.focus();
+        // First open: inject lead form if needed
+        if (shouldShowLeadForm && !leadFormReady) {
+          leadFormReady = true;
+          inputRow.style.display = "none";
+          const form = buildLeadForm(wc.lead_capture, messagesEl, () => {
+            // Lead form done — show chat input and welcome message
+            inputRow.style.display = "";
+            showChatView();
+            inputEl.focus();
+          });
+          // Insert form between header and powered footer
+          const powered = document.getElementById("cb-powered")!;
+          panel.insertBefore(form, powered);
+        } else if (!shouldShowLeadForm) {
+          inputEl.focus();
+        }
+
         bubble.innerHTML = `<svg viewBox="0 0 24 24" style="fill:white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`;
       } else {
         bubble.innerHTML = `<svg viewBox="0 0 24 24" style="fill:white"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>`;
       }
     });
+
+    // Show welcome immediately if no lead form
+    if (!shouldShowLeadForm) {
+      appendMessage(wc.welcome_message, "bot", messagesEl);
+    }
 
     let ws: WebSocket | null = null;
     function connectWebSocket(convId: string) {
@@ -251,16 +434,12 @@ declare global {
           const data = JSON.parse(event.data);
           if (data.role === "agent") {
             appendMessage(data.content, "agent", messagesEl);
-            if (!isOpen) {
-               // Flash or indicate unread? We just keep it simple and maybe bump up
-            }
           }
         } catch(e) {}
       };
       ws.onclose = () => { ws = null; };
     }
 
-    // Connect if we already have a conversation
     if (conversationId) connectWebSocket(conversationId);
 
     async function submit() {
@@ -298,7 +477,6 @@ declare global {
       }
     });
 
-    // Auto-resize textarea
     inputEl.addEventListener("input", () => {
       inputEl.style.height = "auto";
       inputEl.style.height = Math.min(inputEl.scrollHeight, 80) + "px";
@@ -344,7 +522,6 @@ declare global {
     init();
   }
 
-  // Allow cleanup & reinit (used by dashboard's ChatbotWidget component)
   (window as any).__cb_destroy = () => {
     document.getElementById("cb-widget")?.remove();
     delete (window as any).__cb_loaded;

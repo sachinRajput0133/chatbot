@@ -6,11 +6,23 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import get_current_user_id
 from app.models.widget import WidgetConfig
+from app.models.lead_capture import LeadCaptureConfig
 from app.models.tenant import Tenant
-from app.schemas.widget import WidgetConfigOut, WidgetConfigUpdate
+from app.schemas.widget import WidgetConfigOut, WidgetConfigUpdate, LeadCaptureInfo
 from app.services import auth_service
 
 router = APIRouter(tags=["widget"])
+
+
+def _build_lead_capture_info(lc: LeadCaptureConfig | None) -> LeadCaptureInfo:
+    if not lc or not lc.enabled:
+        return LeadCaptureInfo(enabled=False)
+    return LeadCaptureInfo(
+        enabled=True,
+        collect_name=lc.collect_name,
+        collect_email=lc.collect_email,
+        collect_phone=lc.collect_phone,
+    )
 
 
 @router.get("/api/widget-config/{bot_id}", response_model=WidgetConfigOut)
@@ -23,16 +35,27 @@ async def get_widget_config_public(bot_id: uuid.UUID, db: AsyncSession = Depends
 
     result = await db.execute(select(WidgetConfig).where(WidgetConfig.tenant_id == tenant.id))
     config = result.scalar_one_or_none()
+
+    # Fetch lead capture config (may not exist)
+    lc_result = await db.execute(
+        select(LeadCaptureConfig).where(LeadCaptureConfig.tenant_id == tenant.id)
+    )
+    lc = lc_result.scalar_one_or_none()
+    lead_capture_info = _build_lead_capture_info(lc)
+
     if not config:
-        # Return defaults
         return WidgetConfigOut(
             bot_name="Assistant",
             primary_color="#6366f1",
             welcome_message="Hi! How can I help you today?",
             position="bottom-right",
             avatar_url=None,
+            lead_capture=lead_capture_info,
         )
-    return config
+
+    out = WidgetConfigOut.model_validate(config)
+    out.lead_capture = lead_capture_info
+    return out
 
 
 @router.get("/api/widget/config", response_model=WidgetConfigOut)

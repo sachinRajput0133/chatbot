@@ -2,6 +2,16 @@ from pydantic import BaseModel
 from app.models.widget import WidgetPosition
 
 
+class LeadCaptureInfo(BaseModel):
+    """Lead capture config embedded in widget-config response (public endpoint)."""
+    enabled: bool = False
+    collect_name: bool = True
+    collect_email: bool = True
+    collect_phone: bool = False
+    title: str = "Before we start..."
+    subtitle: str = "Please share your details so we can help you better."
+
+
 class WidgetConfigOut(BaseModel):
     bot_name: str
     primary_color: str
@@ -20,6 +30,8 @@ class WidgetConfigOut(BaseModel):
     what_we_do: str | None = None
     unique_selling_proposition: str | None = None
     system_prompt: str | None = None
+    # Lead capture (included so widget knows what form to show)
+    lead_capture: LeadCaptureInfo = LeadCaptureInfo()
 
     class Config:
         from_attributes = True
