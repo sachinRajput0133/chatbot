@@ -31,19 +31,30 @@ async def upsert_config(tenant_id: uuid.UUID, updates: dict, db: AsyncSession) -
     return config
 
 
-def build_lead_collection_prompt(config: LeadCaptureConfig) -> str:
-    """Return a system prompt addon that instructs the bot to collect contact info."""
+def build_lead_collection_prompt(
+    config: LeadCaptureConfig,
+    *,
+    known_name: str | None = None,
+    known_email: str | None = None,
+    known_phone: str | None = None,
+    known_address: str | None = None,
+) -> str:
+    """Return a system prompt addon that instructs the bot to collect contact info.
+
+    Fields that are already known (passed via the ``known_*`` kwargs) are skipped
+    so the bot never asks for information the visitor already provided.
+    """
     if not config.enabled:
         return ""
 
     fields = []
-    if config.collect_name:
+    if config.collect_name and not known_name:
         fields.append("full name")
-    if config.collect_email:
+    if config.collect_email and not known_email:
         fields.append("email address")
-    if config.collect_phone:
+    if config.collect_phone and not known_phone:
         fields.append("phone number")
-    if config.collect_address:
+    if config.collect_address and not known_address:
         fields.append("mailing address")
     for q in (config.custom_questions or []):
         fields.append(q.get("question", ""))
@@ -52,10 +63,9 @@ def build_lead_collection_prompt(config: LeadCaptureConfig) -> str:
         return ""
 
     fields_str = ", ".join(fields)
-    skip_note = " If the visitor has already provided some of this information, do not ask again." if config.skip_if_filled else ""
     return (
         f"\n\nLEAD COLLECTION: During this conversation, naturally collect the visitor's {fields_str}. "
-        f"Ask ONE piece of information at a time, woven naturally into helping them.{skip_note} "
+        "Ask ONE piece of information at a time, woven naturally into helping them. "
         "Do not make it feel like a form — keep it conversational."
     )
 

@@ -269,16 +269,24 @@ async def handle_chat(
     widget = result.scalar_one_or_none()
     system_prompt = _build_system_prompt(widget, tenant.business_name)
 
-    # Append lead collection instructions if configured
-    lead_config = await lead_capture_service.get_config(tenant.id, db)
-    if lead_config:
-        system_prompt += lead_capture_service.build_lead_collection_prompt(lead_config)
-
     # If user is identified, use a stable visitor_id based on their external user ID
     if user_info and user_info.user_id:
         visitor_id = f"usr_{user_info.user_id}"
 
+    # Fetch/create conversation BEFORE building the lead collection prompt so we can
+    # check which fields are already known and avoid asking for them again.
     conv = await _get_or_create_conversation(tenant.id, visitor_id, conversation_id, page_url, db, user_info)
+
+    # Append lead collection instructions, skipping fields the visitor already provided.
+    lead_config = await lead_capture_service.get_config(tenant.id, db)
+    if lead_config:
+        system_prompt += lead_capture_service.build_lead_collection_prompt(
+            lead_config,
+            known_name=conv.visitor_name,
+            known_email=conv.visitor_email,
+            known_phone=conv.visitor_phone,
+            known_address=getattr(conv, "visitor_address", None),
+        )
 
     # Extract contact info from the user's message and update conversation record
     if lead_config and lead_config.enabled:

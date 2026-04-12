@@ -109,7 +109,7 @@ export function HelpChatWidget({ side = "left" }: { side?: "left" | "right" }) {
     try {
       const hasInfo = formData.name || formData.email || formData.phone || formData.address;
       if (hasInfo) {
-        await fetch(`${API_URL}/api/chat/${helpBotId}/contact`, {
+        const res = await fetch(`${API_URL}/api/chat/${helpBotId}/contact`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -121,6 +121,12 @@ export function HelpChatWidget({ side = "left" }: { side?: "left" | "right" }) {
             page_url: window.location.href,
           }),
         });
+        // Capture the conversation_id so the first chat message continues
+        // the same conversation that already has the visitor's contact info.
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.conversation_id) setConvId(data.conversation_id);
+        }
       }
     } catch {
       // silently continue
@@ -149,6 +155,13 @@ export function HelpChatWidget({ side = "left" }: { side?: "left" | "right" }) {
           visitor_id: getVisitorId(),
           conversation_id: convId,
           page_url: window.location.href,
+          // Pass collected form data so the backend knows what's already provided
+          // and won't ask for it again in the AI response.
+          user_info: (formData.name || formData.email || formData.phone) ? {
+            name: formData.name || undefined,
+            email: formData.email || undefined,
+            phone: formData.phone || undefined,
+          } : undefined,
         }),
       });
       const data = await res.json();
