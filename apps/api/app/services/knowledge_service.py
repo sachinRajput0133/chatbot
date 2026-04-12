@@ -30,7 +30,7 @@ def _chunk_text(text: str) -> list[str]:
 
 
 async def save_uploaded_file(file: UploadFile, tenant_id: uuid.UUID) -> tuple[str, DocumentType]:
-    """Save upload to disk and return (path, doc_type)."""
+    """Save upload to S3 (prod) or local disk (dev). Returns (path_or_s3_uri, doc_type)."""
     ext = Path(file.filename or "").suffix.lower().lstrip(".")
     type_map = {"pdf": DocumentType.pdf, "txt": DocumentType.txt, "docx": DocumentType.docx}
     doc_type = type_map.get(ext)
@@ -38,16 +38,23 @@ async def save_uploaded_file(file: UploadFile, tenant_id: uuid.UUID) -> tuple[st
         raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
 
     max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
-    tenant_dir = Path(settings.UPLOAD_DIR) / str(tenant_id)
-    tenant_dir.mkdir(parents=True, exist_ok=True)
-
-    filename = f"{uuid.uuid4()}.{ext}"
-    file_path = tenant_dir / filename
-
     content = await file.read()
     if len(content) > max_bytes:
         raise HTTPException(status_code=413, detail=f"File too large. Max {settings.MAX_UPLOAD_SIZE_MB}MB")
 
+    dest_key = f"{tenant_id}/{uuid.uuid4()}.{ext}"
+
+    if settings.S3_BUCKET_NAME:
+        import boto3
+        import io
+        s3 = boto3.client("s3", region_name=settings.S3_REGION)
+        s3.upload_fileobj(io.BytesIO(content), settings.S3_BUCKET_NAME, dest_key)
+        return f"s3://{settings.S3_BUCKET_NAME}/{dest_key}", doc_type
+
+    # Local disk fallback (development)
+    tenant_dir = Path(settings.UPLOAD_DIR) / str(tenant_id)
+    tenant_dir.mkdir(parents=True, exist_ok=True)
+    file_path = tenant_dir / f"{uuid.uuid4()}.{ext}"
     file_path.write_bytes(content)
     return str(file_path), doc_type
 

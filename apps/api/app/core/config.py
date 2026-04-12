@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     # Storage
     UPLOAD_DIR: str = "/app/uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
+    S3_BUCKET_NAME: str = ""
+    S3_REGION: str = "ap-south-1"
 
     # Platform admin — powers the in-dashboard help chatbot
     PLATFORM_ADMIN_EMAIL: str = "admin@chatbot.platform"

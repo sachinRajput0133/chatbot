@@ -33,18 +33,35 @@ function parseToken(token: string) {
   }
 }
 
+const inputClass =
+  "w-full px-5 py-4 bg-white border border-gray-200 rounded-xl transition-all outline-none text-gray-900 placeholder:text-gray-400 text-sm";
+
+function useOrangeFocus() {
+  return {
+    onFocus: (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
+      e.target.style.boxShadow = "0 0 0 2px #F15A24";
+      e.target.style.borderColor = "#F15A24";
+    },
+    onBlur: (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => {
+      e.target.style.boxShadow = "";
+      e.target.style.borderColor = "#e5e7eb";
+    },
+  };
+}
+
 export default function SignupPage() {
   const router = useRouter();
   const dispatch = useDispatch();
   const [form, setForm] = useState({ business_name: "", email: "", password: "", country: "US" });
   const [error, setError] = useState("");
 
-  // Google signup — needs country + business_name before submitting
   const [googlePending, setGooglePending] = useState<{ credential: string } | null>(null);
   const [googleForm, setGoogleForm] = useState({ country: "US", business_name: "" });
 
   const [signup, { isLoading }] = useSignupMutation();
   const [googleAuth, { isLoading: googleLoading }] = useGoogleAuthMutation();
+
+  const focusHandlers = useOrangeFocus();
 
   async function handleEmailSignup(e: React.FormEvent) {
     e.preventDefault();
@@ -61,7 +78,6 @@ export default function SignupPage() {
 
   function handleGoogleSuccess(credentialResponse: CredentialResponse) {
     if (!credentialResponse.credential) return;
-    // Decode name from Google JWT to prefill business_name
     try {
       const payload = JSON.parse(atob(credentialResponse.credential.split(".")[1]));
       setGoogleForm((f) => ({ ...f, business_name: payload.name || "" }));
@@ -88,178 +104,310 @@ export default function SignupPage() {
     }
   }
 
-  // ── Google completion step ──────────────────────────────────────────────────
+  // ── Google completion step ────────────────────────────────────────────────
   if (googlePending) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="bg-white rounded-2xl shadow-sm border p-8 w-full max-w-md">
-          <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-600 mb-3">
-              <span className="text-white text-xl">💬</span>
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">One last step</h1>
-            <p className="text-gray-500 text-sm mt-1">Tell us about your business</p>
-          </div>
+      <div className="min-h-screen flex flex-col" style={{ fontFamily: "'Manrope', sans-serif" }}>
+        <header className="fixed top-0 w-full flex justify-between items-center px-8 py-6 z-50 bg-transparent">
+          <div className="text-2xl font-black text-gray-900 tracking-tighter">Lumina</div>
+        </header>
 
-          {error && (
-            <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg mb-4 flex gap-2">
-              <span>⚠️</span> {error}
+        <main className="flex-1 flex flex-col md:flex-row min-h-screen">
+          {/* Left Panel */}
+          <section className="relative w-full md:w-1/2 min-h-64 md:min-h-screen overflow-hidden">
+            <div className="absolute inset-0 bg-black/30 z-10" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1200&q=80"
+              alt="AI technology workspace"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="relative z-20 h-full flex flex-col justify-center px-8 md:px-16 lg:px-24 pt-24 pb-16">
+              <div className="max-w-xl">
+                <h1 className="text-white text-5xl md:text-6xl leading-none font-extrabold tracking-tighter mb-6">
+                  Almost there.{" "}
+                  <span style={{ color: "#ffb59e" }}>Tell us about yourself.</span>
+                </h1>
+                <p className="text-white/90 text-lg font-medium max-w-md">
+                  Just one more step to unlock your AI-powered chatbot.
+                </p>
+              </div>
             </div>
-          )}
+            <div className="absolute bottom-16 left-0 w-32 h-2 z-20" style={{ backgroundColor: "#F15A24" }} />
+          </section>
 
-          <form onSubmit={completeGoogleSignup} className="flex flex-col gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700">Business Name</label>
-              <input
-                type="text"
-                required
-                value={googleForm.business_name}
-                onChange={(e) => setGoogleForm({ ...googleForm, business_name: e.target.value })}
-                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="My Business"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700">Country</label>
-              <select
-                value={googleForm.country}
-                onChange={(e) => setGoogleForm({ ...googleForm, country: e.target.value })}
-                className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                {COUNTRIES.map((c) => (
-                  <option key={c.code} value={c.code}>{c.name}</option>
-                ))}
-              </select>
-              {googleForm.country === "IN" && (
-                <p className="text-xs text-gray-500 mt-1">Billing via Razorpay (UPI, cards, net banking)</p>
+          {/* Right Panel: Google completion form */}
+          <section className="w-full md:w-1/2 flex items-center justify-center bg-white px-6 py-16 md:p-12 lg:p-24">
+            <div className="w-full max-w-md space-y-10">
+              <div className="space-y-3">
+                <h2 className="text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">One Last Step</h2>
+                <p className="text-gray-500 font-medium">Tell us about your business to complete setup.</p>
+              </div>
+
+              {error && (
+                <div className="bg-red-50 border border-red-100 text-red-600 text-sm p-4 rounded-xl flex items-center gap-2">
+                  <span>⚠</span> {error}
+                </div>
               )}
+
+              <form onSubmit={completeGoogleSignup} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-gray-900 tracking-wide">Business Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={googleForm.business_name}
+                    onChange={(e) => setGoogleForm({ ...googleForm, business_name: e.target.value })}
+                    className={inputClass}
+                    placeholder="My Business"
+                    {...focusHandlers}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-gray-900 tracking-wide">Country</label>
+                  <select
+                    value={googleForm.country}
+                    onChange={(e) => setGoogleForm({ ...googleForm, country: e.target.value })}
+                    className={inputClass}
+                    {...(focusHandlers as React.HTMLAttributes<HTMLSelectElement>)}
+                  >
+                    {COUNTRIES.map((c) => (
+                      <option key={c.code} value={c.code}>{c.name}</option>
+                    ))}
+                  </select>
+                  {googleForm.country === "IN" && (
+                    <p className="text-xs text-gray-500 mt-1">Billing via Razorpay (UPI, cards, net banking)</p>
+                  )}
+                </div>
+
+                <div className="space-y-4 pt-2">
+                  <button
+                    type="submit"
+                    disabled={googleLoading}
+                    className="w-full text-white py-5 px-8 rounded-full font-bold text-lg flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-60"
+                    style={{ backgroundColor: "#F15A24" }}
+                  >
+                    {googleLoading ? "Creating account…" : "Create Free Account"}
+                    {!googleLoading && (
+                      <span className="material-symbols-outlined text-2xl" style={{ fontFamily: "'Material Symbols Outlined'" }}>
+                        arrow_forward
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setGooglePending(null); setError(""); }}
+                    className="w-full text-sm text-gray-400 hover:text-gray-700 text-center py-2 transition-colors"
+                  >
+                    ← Back
+                  </button>
+                </div>
+              </form>
             </div>
-            <button
-              type="submit"
-              disabled={googleLoading}
-              className="bg-indigo-600 text-white py-2.5 rounded-lg font-semibold hover:bg-indigo-700 transition disabled:opacity-60"
-            >
-              {googleLoading ? "Creating account…" : "Create Free Account"}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setGooglePending(null); setError(""); }}
-              className="text-sm text-gray-500 hover:text-gray-700 text-center"
-            >
-              ← Back
-            </button>
-          </form>
-        </div>
+          </section>
+        </main>
+
+        <footer className="fixed bottom-0 w-full flex justify-between items-center px-8 py-4 z-50">
+          <span className="font-bold text-gray-900 text-lg">Lumina</span>
+          <nav className="flex gap-6">
+            <a className="text-sm text-gray-400 hover:text-gray-900 transition-colors" href="#">Privacy</a>
+            <a className="text-sm text-gray-400 hover:text-gray-900 transition-colors" href="#">Terms</a>
+          </nav>
+        </footer>
       </div>
     );
   }
 
-  // ── Main signup form ────────────────────────────────────────────────────────
+  // ── Main signup form ──────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="bg-white rounded-2xl shadow-sm border p-8 w-full max-w-md">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-600 mb-3">
-            <span className="text-white text-xl">💬</span>
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Create your account</h1>
-          <p className="text-gray-500 text-sm mt-1">Free forever · No credit card required</p>
+    <div className="min-h-screen flex flex-col" style={{ fontFamily: "'Manrope', sans-serif" }}>
+      {/* Fixed Header */}
+      <header className="fixed top-0 w-full flex justify-between items-center px-8 py-6 z-50 bg-transparent">
+        <div className="text-2xl font-black text-gray-900 tracking-tighter">Lumina</div>
+        <div className="flex items-center gap-6">
+          <span className="text-sm text-gray-400 hover:text-gray-900 transition-colors cursor-pointer">Support</span>
         </div>
+      </header>
 
-        {error && (
-          <div className="bg-red-50 text-red-600 text-sm p-3 rounded-lg mb-4 flex gap-2">
-            <span>⚠️</span> {error}
-          </div>
-        )}
-
-        {/* Google Button */}
-        <div className="flex justify-center mb-4">
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={() => setError("Google sign-up was cancelled or failed.")}
-            theme="outline"
-            size="large"
-            width="100%"
-            text="signup_with"
-            shape="rectangular"
+      <main className="flex-1 flex flex-col md:flex-row min-h-screen">
+        {/* Left Panel: Hero Image + Headline */}
+        <section className="relative w-full md:w-1/2 min-h-64 md:min-h-screen overflow-hidden">
+          <div className="absolute inset-0 bg-black/30 z-10" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1200&q=80"
+            alt="AI technology workspace"
+            className="absolute inset-0 w-full h-full object-cover"
           />
-        </div>
+          <div className="relative z-20 h-full flex flex-col justify-center px-8 md:px-16 lg:px-24 pt-24 pb-16">
+            <div className="max-w-xl">
+              <h1 className="text-white text-5xl md:text-6xl leading-none font-extrabold tracking-tighter mb-6">
+                Power your website{" "}
+                <span style={{ color: "#ffb59e" }}>with Intelligent AI.</span>
+              </h1>
+              <p className="text-white/90 text-lg md:text-xl font-medium max-w-md">
+                The ultimate engine for customer engagement, automated support, and seamless website integration.
+              </p>
+            </div>
+          </div>
+          <div className="absolute bottom-16 left-0 w-32 h-2 z-20" style={{ backgroundColor: "#F15A24" }} />
+        </section>
 
-        {/* Divider */}
-        <div className="relative mb-4">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-200" />
-          </div>
-          <div className="relative flex justify-center text-xs text-gray-400">
-            <span className="bg-white px-3">or sign up with email</span>
-          </div>
-        </div>
+        {/* Right Panel: Signup Form */}
+        <section className="w-full md:w-1/2 flex items-center justify-center bg-white px-6 py-16 md:p-12 lg:p-24">
+          <div className="w-full max-w-md space-y-8">
+            <div className="space-y-3">
+              <h2 className="text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">Get Started Free</h2>
+              <p className="text-gray-500 font-medium">
+                Create your account and deploy your AI chatbot in minutes.
+              </p>
+            </div>
 
-        {/* Email form */}
-        <form onSubmit={handleEmailSignup} className="flex flex-col gap-4">
-          <div>
-            <label className="text-sm font-medium text-gray-700">Business Name</label>
-            <input
-              type="text"
-              required
-              value={form.business_name}
-              onChange={(e) => setForm({ ...form, business_name: e.target.value })}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="My Business"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">Work Email</label>
-            <input
-              type="email"
-              required
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="you@company.com"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">Password</label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="Min 8 characters"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-700">Country</label>
-            <select
-              value={form.country}
-              onChange={(e) => setForm({ ...form, country: e.target.value })}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {COUNTRIES.map((c) => (
-                <option key={c.code} value={c.code}>{c.name}</option>
-              ))}
-            </select>
-            {form.country === "IN" && (
-              <p className="text-xs text-gray-500 mt-1">Billing via Razorpay (UPI, cards, net banking)</p>
+            {error && (
+              <div className="bg-red-50 border border-red-100 text-red-600 text-sm p-4 rounded-xl flex items-center gap-2">
+                <span>⚠</span> {error}
+              </div>
             )}
-          </div>
-          <button
-            type="submit"
-            disabled={isLoading || googleLoading}
-            className="bg-indigo-600 text-white py-2.5 rounded-lg font-semibold hover:bg-indigo-700 transition disabled:opacity-60"
-          >
-            {isLoading ? "Creating account…" : "Create Free Account"}
-          </button>
-        </form>
 
-        <p className="text-center text-sm text-gray-500 mt-5">
-          Already have an account?{" "}
-          <Link href="/login" className="text-indigo-600 font-medium hover:underline">Sign in</Link>
-        </p>
-      </div>
+            <form onSubmit={handleEmailSignup} className="space-y-5">
+              {/* Business Name */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-gray-900 tracking-wide">Business Name</label>
+                <input
+                  type="text"
+                  required
+                  value={form.business_name}
+                  onChange={(e) => setForm({ ...form, business_name: e.target.value })}
+                  className={inputClass}
+                  placeholder="My Business"
+                  {...focusHandlers}
+                />
+              </div>
+
+              {/* Work Email */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-gray-900 tracking-wide">Work Email</label>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  className={inputClass}
+                  placeholder="name@company.com"
+                  {...focusHandlers}
+                />
+              </div>
+
+              {/* Password */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-gray-900 tracking-wide">Password</label>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  required
+                  minLength={8}
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  className={inputClass}
+                  placeholder="Min 8 characters"
+                  {...focusHandlers}
+                />
+              </div>
+
+              {/* Country */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-gray-900 tracking-wide">Country</label>
+                <select
+                  value={form.country}
+                  onChange={(e) => setForm({ ...form, country: e.target.value })}
+                  className={inputClass}
+                  {...(focusHandlers as React.HTMLAttributes<HTMLSelectElement>)}
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.name}</option>
+                  ))}
+                </select>
+                {form.country === "IN" && (
+                  <p className="text-xs text-gray-500 mt-1">Billing via Razorpay (UPI, cards, net banking)</p>
+                )}
+              </div>
+
+              {/* CTA + Social */}
+              <div className="space-y-5 pt-2">
+                <button
+                  type="submit"
+                  disabled={isLoading || googleLoading}
+                  className="w-full text-white py-5 px-8 rounded-full font-bold text-lg flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-60"
+                  style={{ backgroundColor: "#F15A24" }}
+                  onMouseEnter={(e) => { if (!isLoading) (e.target as HTMLButtonElement).style.filter = "brightness(1.1)"; }}
+                  onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.filter = ""; }}
+                >
+                  {isLoading ? "Creating account…" : "Create Free Account"}
+                  {!isLoading && (
+                    <span className="material-symbols-outlined text-2xl" style={{ fontFamily: "'Material Symbols Outlined'" }}>
+                      arrow_forward
+                    </span>
+                  )}
+                </button>
+
+                {/* OR divider */}
+                <div className="relative flex items-center py-1">
+                  <div className="flex-grow border-t border-gray-100" />
+                  <span className="flex-shrink mx-4 text-xs font-bold text-gray-400 tracking-widest">OR CONTINUE WITH</span>
+                  <div className="flex-grow border-t border-gray-100" />
+                </div>
+
+                {/* Social Buttons */}
+                <div className="flex gap-4">
+                  <div className="flex-1 flex items-center justify-center">
+                    <GoogleLogin
+                      onSuccess={handleGoogleSuccess}
+                      onError={() => setError("Google sign-up was cancelled or failed.")}
+                      theme="outline"
+                      size="large"
+                      text="signup_with"
+                      shape="rectangular"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled
+                    className="flex-1 flex items-center justify-center gap-2 py-4 bg-gray-50 rounded-xl font-bold text-gray-500 opacity-50 cursor-not-allowed border border-gray-200 text-sm"
+                  >
+                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.341-3.369-1.341-.454-1.152-1.11-1.459-1.11-1.459-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.577.688.48C19.137 20.164 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
+                    </svg>
+                    GitHub
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            <div className="text-center">
+              <p className="text-gray-500 font-medium">
+                Already have an account?{" "}
+                <Link href="/login" className="font-bold hover:underline ml-1" style={{ color: "#F15A24" }}>
+                  Sign in
+                </Link>
+              </p>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* Fixed Footer */}
+      <footer className="fixed bottom-0 w-full flex justify-between items-center px-8 py-4 z-50 bg-transparent">
+        <div className="flex items-center gap-4">
+          <span className="font-bold text-gray-900 text-lg">Lumina</span>
+          <span className="text-sm text-gray-400 hidden sm:block">© 2024 Lumina. Intelligent Business Automation.</span>
+        </div>
+        <nav className="flex gap-6">
+          <a className="text-sm text-gray-400 hover:text-gray-900 transition-colors" href="#">Privacy</a>
+          <a className="text-sm text-gray-400 hover:text-gray-900 transition-colors" href="#">Terms</a>
+          <a className="text-sm text-gray-400 hover:text-gray-900 transition-colors" href="#">Security</a>
+        </nav>
+      </footer>
     </div>
   );
 }

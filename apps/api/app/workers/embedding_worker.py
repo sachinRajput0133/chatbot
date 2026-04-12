@@ -36,20 +36,48 @@ def _fetch_url_text(url: str) -> str:
     return "\n".join(lines)
 
 
+def _download_from_s3(s3_url: str) -> str:
+    """Download an S3 object to a local temp file. Returns the temp file path."""
+    import boto3
+    import tempfile
+    from urllib.parse import urlparse
+
+    parsed = urlparse(s3_url)
+    bucket, key = parsed.netloc, parsed.path.lstrip("/")
+    suffix = Path(key).suffix
+    tmp_path = tempfile.mktemp(suffix=suffix)
+    boto3.client("s3").download_file(bucket, key, tmp_path)
+    return tmp_path
+
+
 def _extract_text(file_path: str, file_type: DocumentType) -> str:
-    if file_type == DocumentType.pdf:
-        with pdfplumber.open(file_path) as pdf:
-            return "\n\n".join(
-                page.extract_text() or "" for page in pdf.pages
-            )
-    elif file_type == DocumentType.docx:
-        doc = docx.Document(file_path)
-        return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
-    elif file_type == DocumentType.url:
-        url = Path(file_path).read_text(encoding="utf-8").strip()
-        return _fetch_url_text(url)
-    else:  # txt, manual, faq
-        return Path(file_path).read_text(encoding="utf-8")
+    # S3-hosted files: download to a temp path first, then process as normal
+    tmp_path = None
+    local_path = file_path
+    if file_path.startswith("s3://"):
+        local_path = _download_from_s3(file_path)
+        tmp_path = local_path
+
+    try:
+        if file_type == DocumentType.pdf:
+            with pdfplumber.open(local_path) as pdf:
+                return "\n\n".join(
+                    page.extract_text() or "" for page in pdf.pages
+                )
+        elif file_type == DocumentType.docx:
+            doc = docx.Document(local_path)
+            return "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        elif file_type == DocumentType.url:
+            url = Path(local_path).read_text(encoding="utf-8").strip()
+            return _fetch_url_text(url)
+        else:  # txt, manual, faq
+            return Path(local_path).read_text(encoding="utf-8")
+    finally:
+        if tmp_path:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def _embed_texts(texts: list[str]) -> list[list[float] | None]:

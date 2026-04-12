@@ -1,3 +1,6 @@
+from app.core.secrets import expand_secrets
+expand_secrets()  # must run before any module reads settings (expands APP_SECRETS JSON in ECS)
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
