@@ -25,6 +25,7 @@ interface LeadCaptureInfo {
   collect_name: boolean;
   collect_email: boolean;
   collect_phone: boolean;
+  collect_address: boolean;
   title: string;
   subtitle: string;
 }
@@ -133,7 +134,7 @@ declare global {
   }
 
   // ── Submit lead form ───────────────────────────────────────────────────────
-  async function submitContact(name: string, email: string, phone: string): Promise<string | null> {
+  async function submitContact(name: string, email: string, phone: string, address: string): Promise<string | null> {
     const body: Record<string, string> = {
       visitor_id: visitorId,
       page_url: window.location.href,
@@ -141,6 +142,7 @@ declare global {
     if (name) body.name = name;
     if (email) body.email = email;
     if (phone) body.phone = phone;
+    if (address) body.address = address;
 
     const res = await fetch(`${API_URL}/api/chat/${BOT_ID}/contact`, {
       method: "POST",
@@ -263,6 +265,7 @@ declare global {
     if (lc.collect_name) fields.push({ id: "cb-lf-name", label: "Your Name", type: "text", placeholder: "Jane Smith" });
     if (lc.collect_email) fields.push({ id: "cb-lf-email", label: "Email Address", type: "email", placeholder: "jane@example.com" });
     if (lc.collect_phone) fields.push({ id: "cb-lf-phone", label: "Phone Number", type: "tel", placeholder: "+1 555 000 0000" });
+    if (lc.collect_address) fields.push({ id: "cb-lf-address", label: "Mailing Address", type: "text", placeholder: "123 Main St, City, State" });
 
     form.innerHTML = `
       <p class="cb-lf-title">${escHtml(lc.title)}</p>
@@ -288,6 +291,7 @@ declare global {
       const nameVal = lc.collect_name ? (form.querySelector("#cb-lf-name") as HTMLInputElement)?.value.trim() : "";
       const emailVal = lc.collect_email ? (form.querySelector("#cb-lf-email") as HTMLInputElement)?.value.trim() : "";
       const phoneVal = lc.collect_phone ? (form.querySelector("#cb-lf-phone") as HTMLInputElement)?.value.trim() : "";
+      const addressVal = lc.collect_address ? (form.querySelector("#cb-lf-address") as HTMLInputElement)?.value.trim() : "";
 
       // Basic validation — require at least one field filled
       if (lc.collect_email && emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
@@ -301,7 +305,7 @@ declare global {
       submitBtn.textContent = "Saving...";
 
       try {
-        const convId = await submitContact(nameVal, emailVal, phoneVal);
+        const convId = await submitContact(nameVal, emailVal, phoneVal, addressVal);
         if (convId) {
           conversationId = convId;
           setConversationId(convId);
