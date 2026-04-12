@@ -23,14 +23,24 @@ interface WidgetConfig {
   lead_capture: LeadCapture | null;
 }
 
+const VISITOR_KEY = "cb_help_visitor";
+const CONV_KEY = "cb_help_conv";
+
 function getVisitorId(): string {
-  const key = "cb_help_visitor";
-  let id = localStorage.getItem(key);
+  let id = localStorage.getItem(VISITOR_KEY);
   if (!id) {
     id = crypto.randomUUID();
-    localStorage.setItem(key, id);
+    localStorage.setItem(VISITOR_KEY, id);
   }
   return id;
+}
+
+function getStoredConvId(): string | null {
+  return localStorage.getItem(CONV_KEY);
+}
+
+function storeConvId(id: string) {
+  localStorage.setItem(CONV_KEY, id);
 }
 
 const COLOR = "#0d9488";
@@ -53,7 +63,7 @@ export function HelpChatWidget({ side = "left" }: { side?: "left" | "right" }) {
   const [convId, setConvId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Fetch platform bot_id + widget config on mount
+  // Fetch platform bot_id + widget config on mount, then restore history if available
   useEffect(() => {
     fetch(`${API_URL}/api/platform/config`)
       .then((r) => r.json())
@@ -66,6 +76,27 @@ export function HelpChatWidget({ side = "left" }: { side?: "left" | "right" }) {
           .then((r) => r.json())
           .catch(() => null);
         if (cfg) setWidgetConfig(cfg);
+
+        // Restore previous conversation from localStorage
+        const storedConvId = getStoredConvId();
+        if (storedConvId) {
+          const visitorId = getVisitorId();
+          try {
+            const histRes = await fetch(
+              `${API_URL}/api/chat/${botId}/history?visitor_id=${encodeURIComponent(visitorId)}&conversation_id=${encodeURIComponent(storedConvId)}`
+            );
+            if (histRes.ok) {
+              const history: Array<{ role: string; content: string }> = await histRes.json();
+              if (history.length > 0) {
+                setConvId(storedConvId);
+                setMessages(history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })));
+                setFormDone(true);
+              }
+            }
+          } catch {
+            // ignore — fresh session
+          }
+        }
       })
       .catch(() => {});
   }, []);
@@ -125,7 +156,10 @@ export function HelpChatWidget({ side = "left" }: { side?: "left" | "right" }) {
         // the same conversation that already has the visitor's contact info.
         if (res.ok) {
           const data = await res.json().catch(() => null);
-          if (data?.conversation_id) setConvId(data.conversation_id);
+          if (data?.conversation_id) {
+            setConvId(data.conversation_id);
+            storeConvId(data.conversation_id);
+          }
         }
       }
     } catch {
@@ -165,7 +199,10 @@ export function HelpChatWidget({ side = "left" }: { side?: "left" | "right" }) {
         }),
       });
       const data = await res.json();
-      if (data?.conversation_id) setConvId(data.conversation_id);
+      if (data?.conversation_id) {
+        setConvId(data.conversation_id);
+        storeConvId(data.conversation_id);
+      }
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: data?.reply || "Sorry, something went wrong." },

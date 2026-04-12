@@ -96,6 +96,18 @@ declare global {
   let widgetConfig: WidgetConfig | null = null;
   let isOpen = false;
 
+  // Stores contact info collected from the pre-chat lead form (also persisted in localStorage)
+  function getStoredLeadInfo(): { name: string; email: string; phone: string; address: string } | null {
+    try {
+      const raw = localStorage.getItem(`cb_contact_${BOT_ID}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+  function storeLeadInfo(info: { name: string; email: string; phone: string; address: string }) {
+    localStorage.setItem(`cb_contact_${BOT_ID}`, JSON.stringify(info));
+  }
+  let collectedLeadInfo: { name: string; email: string; phone: string; address: string } | null = getStoredLeadInfo();
+
   // ── Fetch widget config ────────────────────────────────────────────────────
   async function fetchConfig(): Promise<WidgetConfig> {
     const res = await fetch(`${API_URL}/api/widget-config/${BOT_ID}`);
@@ -105,6 +117,15 @@ declare global {
 
   // ── Send message ───────────────────────────────────────────────────────────
   async function sendMessage(message: string): Promise<string> {
+    // Build user_info by merging window.ChatbotConfig.user (website owner identity)
+    // with collectedLeadInfo from the pre-chat form. Form data takes precedence since
+    // it was explicitly entered by this visitor.
+    const mergedName = collectedLeadInfo?.name || userInfo?.name || null;
+    const mergedEmail = collectedLeadInfo?.email || userInfo?.email || null;
+    const mergedPhone = collectedLeadInfo?.phone || userInfo?.phone || null;
+    const mergedUserId = userInfo?.userId || null;
+    const hasMergedInfo = mergedUserId || mergedName || mergedEmail || mergedPhone;
+
     const res = await fetch(`${API_URL}/api/chat/${BOT_ID}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -113,12 +134,12 @@ declare global {
         visitor_id: visitorId,
         conversation_id: conversationId || null,
         page_url: window.location.href,
-        ...(userInfo ? {
+        ...(hasMergedInfo ? {
           user_info: {
-            user_id: userInfo.userId || null,
-            name: userInfo.name || null,
-            email: userInfo.email || null,
-            phone: userInfo.phone || null,
+            user_id: mergedUserId,
+            name: mergedName,
+            email: mergedEmail,
+            phone: mergedPhone,
           }
         } : {}),
       }),
@@ -310,6 +331,10 @@ declare global {
           conversationId = convId;
           setConversationId(convId);
         }
+        // Store form values so sendMessage() can pass them as user_info,
+        // ensuring the backend skips re-asking for already-collected fields.
+        collectedLeadInfo = { name: nameVal, email: emailVal, phone: phoneVal, address: addressVal };
+        storeLeadInfo(collectedLeadInfo);
         markLeadSubmitted();
         // Replace form with messages view
         form.remove();

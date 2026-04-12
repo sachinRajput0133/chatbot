@@ -1,12 +1,13 @@
 import uuid
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
 from app.models.tenant import Tenant
-from app.models.conversation import WebConversation
+from app.models.conversation import WebConversation, WebMessage
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_service import handle_chat
 
@@ -76,6 +77,53 @@ async def save_visitor_contact(
     await db.commit()
     await db.refresh(conv)
     return ContactResponse(conversation_id=conv.id)
+
+
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
+    created_at: datetime
+
+
+@router.get("/api/chat/{bot_id}/history")
+async def get_chat_history(
+    bot_id: uuid.UUID,
+    visitor_id: str = Query(...),
+    conversation_id: uuid.UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> list[HistoryMessage]:
+    """
+    Public endpoint — returns messages for a specific visitor's conversation.
+    Ownership verified by matching visitor_id + conversation_id + bot_id.
+    """
+    result = await db.execute(
+        select(Tenant).where(Tenant.bot_id == bot_id, Tenant.is_active == True)
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    result = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
+            WebConversation.tenant_id == tenant.id,
+            WebConversation.visitor_id == visitor_id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    result = await db.execute(
+        select(WebMessage)
+        .where(WebMessage.conversation_id == conv.id)
+        .order_by(WebMessage.created_at)
+    )
+    messages = result.scalars().all()
+    return [
+        HistoryMessage(role=m.role.value, content=m.content, created_at=m.created_at)
+        for m in messages
+    ]
 
 
 @router.post("/api/chat/{bot_id}", response_model=ChatResponse)
