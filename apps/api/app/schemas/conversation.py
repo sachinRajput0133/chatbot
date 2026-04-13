@@ -39,6 +39,8 @@ class ConversationOut(BaseModel):
     visitor_address: str | None = None
     external_user_id: str | None = None
     mode: str = "ai"   # 'ai' | 'human'
+    last_read_at: datetime | None = None
+    is_unread: bool = False
 
     class Config:
         from_attributes = True

@@ -63,11 +63,27 @@ def build_lead_collection_prompt(
         return ""
 
     fields_str = ", ".join(fields)
-    return (
+    prompt = (
         f"\n\nLEAD COLLECTION: During this conversation, naturally collect the visitor's {fields_str}. "
         "Ask ONE piece of information at a time, woven naturally into helping them. "
         "Do not make it feel like a form — keep it conversational."
     )
+
+    known_info = []
+    if known_name:
+        known_info.append(f"Name: {known_name}")
+    if known_email:
+        known_info.append(f"Email: {known_email}")
+    if known_phone:
+        known_info.append(f"Phone: {known_phone}")
+    if known_address:
+        known_info.append(f"Address: {known_address}")
+
+    if known_info:
+        info_str = "\n".join(known_info)
+        prompt += f"\n\nVISITOR CONTEXT: You already know the following about the visitor:\n{info_str}\nUse this to personalize the conversation and DO NOT ask for these details again."
+
+    return prompt
 
 
 def extract_contact_info(text: str) -> dict:

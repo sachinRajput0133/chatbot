@@ -4,6 +4,7 @@ from .knowledge import KnowledgeDocument, KnowledgeChunk, DocumentType, Document
 from .widget import WidgetConfig, WidgetPosition
 from .conversation import WebConversation, WebMessage, MessageRole
 from .subscription import Subscription, SubscriptionStatus, PaymentGateway
+from .lead_capture import LeadCaptureConfig
 
 __all__ = [
     "Tenant", "Plan",
@@ -12,4 +13,5 @@ __all__ = [
     "WidgetConfig", "WidgetPosition",
     "WebConversation", "WebMessage", "MessageRole",
     "Subscription", "SubscriptionStatus", "PaymentGateway",
+    "LeadCaptureConfig",
 ]

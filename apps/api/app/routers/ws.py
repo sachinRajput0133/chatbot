@@ -57,3 +57,31 @@ async def websocket_chat_endpoint(websocket: WebSocket, conversation_id: str):
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.close()
+
+
+@router.websocket("/tenant/{tenant_id}")
+async def tenant_dashboard_websocket(websocket: WebSocket, tenant_id: str):
+    """
+    WebSocket endpoint for real-time dashboard updates.
+    The dashboard connects here to receive updates for ALL conversations.
+    """
+    await websocket.accept()
+    
+    from app.core.redis import get_redis, TENANT_CHANNEL_PREFIX
+    redis = await get_redis()
+    pubsub = redis.pubsub()
+    channel = f"{TENANT_CHANNEL_PREFIX}:{tenant_id}"
+    await pubsub.subscribe(channel)
+
+    try:
+        while True:
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+            if message and message["type"] == "message":
+                await websocket.send_text(message["data"])
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Tenant WebSocket error: {e}")
+    finally:
+        await pubsub.unsubscribe(channel)
+        await pubsub.close()

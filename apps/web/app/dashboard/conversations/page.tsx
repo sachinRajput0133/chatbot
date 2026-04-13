@@ -27,6 +27,10 @@ export default function ConversationsPage() {
   const [selected, setSelected] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [convPage, setConvPage] = useState(1);
+  const [hasMoreConvs, setHasMoreConvs] = useState(true);
+  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false);
+  const [tenant, setTenant] = useState<any>(null);
 
   // ── Messages + pagination ──────────────────────────────────────────
   const [messages, setMessages] = useState<any[]>([]);
@@ -52,13 +56,72 @@ export default function ConversationsPage() {
     setTimeout(() => setCopiedId(false), 2000);
   }, []);
 
-  // ── Load conversation list on mount ───────────────────────────────
+  // ── Load conversation list on mount + Tenant context ───────────────
   useEffect(() => {
-    api.listConversations()
-      .then(setConversations)
+    api.me().then(res => setTenant(res.tenant));
+    
+    api.listConversations(1)
+      .then(res => {
+        setConversations(res);
+        setHasMoreConvs(res.length === 20); // Default limit is 20
+      })
       .catch(() => router.push("/login"))
       .finally(() => setLoading(false));
   }, []);
+
+  // ── Real-time via WebSocket ───────────────────────────────────────
+  useEffect(() => {
+    if (!tenant?.id) return;
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/^https?:\/\//, "") || "localhost:8000";
+    const ws = new WebSocket(`${protocol}//${baseUrl}/api/ws/tenant/${tenant.id}`);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === "new_message") {
+        const { conversation_id, message } = data;
+
+        // 1. Update list position and preview text
+        setConversations((prev) => {
+          const idx = prev.findIndex(c => c.id === conversation_id);
+          if (idx === -1) {
+            // New conversation arrived — we might want to refresh the list or prepend?
+            // For now, let's just refresh page 1 if it's a completely new convo
+            api.listConversations(1).then(setConversations);
+            return prev;
+          }
+          const existing = prev[idx];
+          const updated = { 
+            ...existing, 
+            last_message_at: message.created_at,
+            message_count: (existing.message_count || 0) + 1,
+            // If it's not the selected conversation, mark as unread
+            is_unread: selected?.id !== conversation_id ? true : existing.is_unread
+          };
+          const others = prev.filter(c => c.id !== conversation_id);
+          return [updated, ...others];
+        });
+
+        // 2. If it's the currently open conversation, append the message
+        if (selected?.id === conversation_id) {
+          setMessages((prev) => {
+            // Avoid duplicate messages if already sent by this client
+            if (prev.some(m => m.id === message.id || (m.content === message.content && m.role === message.role && Math.abs(new Date(m.created_at).getTime() - new Date(message.created_at).getTime()) < 1000))) {
+              return prev;
+            }
+            return [...prev, message];
+          });
+          api.markAsRead(conversation_id).catch(console.error);
+          requestAnimationFrame(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          });
+        }
+      }
+    };
+
+    return () => ws.close();
+  }, [tenant, selected?.id]);
 
   // ── Open conversation — load latest page, scroll to bottom ────────
   async function openConversation(conv: any) {
@@ -69,7 +132,12 @@ export default function ConversationsPage() {
     setNextCursor(null);
     setMsgLoading(true);
 
+    // Mark as read in local state immediately
+    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_unread: false } : c));
+
     try {
+      api.markAsRead(conv.id).catch(console.error);
+      
       const [page, fresh] = await Promise.all([
         api.getMessages(conv.id),
         api.getConversation(conv.id),
@@ -161,6 +229,28 @@ export default function ConversationsPage() {
     }
   }, [hasMore, loadingMore, loadMoreMessages]);
 
+  // ── Load more conversations (sidebar infinite scroll) ────────────
+  const loadMoreConversations = useCallback(async () => {
+    if (loadingMoreConvs || !hasMoreConvs) return;
+    setLoadingMoreConvs(true);
+    try {
+      const nextPage = convPage + 1;
+      const results = await api.listConversations(nextPage);
+      if (results.length < 20) setHasMoreConvs(false);
+      setConversations(prev => [...prev, ...results]);
+      setConvPage(nextPage);
+    } finally {
+      setLoadingMoreConvs(false);
+    }
+  }, [convPage, hasMoreConvs, loadingMoreConvs]);
+
+  const handleSidebarScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 100 && hasMoreConvs && !loadingMoreConvs) {
+      loadMoreConversations();
+    }
+  };
+
   // ── Filtered conversation list ────────────────────────────────────
   const filtered = conversations.filter((c) => {
     if (search === "") return true;
@@ -216,7 +306,10 @@ export default function ConversationsPage() {
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-2">
+          <div 
+            className="flex-1 overflow-y-auto px-4 pb-6 space-y-2"
+            onScroll={handleSidebarScroll}
+          >
             {loading ? (
               <div className="text-gray-400 text-sm font-bold text-center py-10">Loading...</div>
             ) : filtered.length === 0 ? (
@@ -251,15 +344,25 @@ export default function ConversationsPage() {
                     <p className="text-xs text-gray-500 leading-relaxed mb-3 line-clamp-2">
                       {conv.visitor_email || conv.page_url || "No page URL"}
                     </p>
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${isActive ? "bg-emerald-500 animate-pulse" : "bg-gray-300"}`} />
-                      <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
-                        {conv.message_count ?? 0} messages
-                      </span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${isActive ? "bg-emerald-500 animate-pulse" : "bg-gray-300"}`} />
+                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                          {conv.message_count ?? 0} messages
+                        </span>
+                      </div>
+                      {conv.is_unread && (
+                        <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-sm shadow-orange-500/50" title="Unread messages" />
+                      )}
                     </div>
                   </button>
                 );
               })
+            )}
+            {loadingMoreConvs && (
+              <div className="flex justify-center py-4">
+                <div className="w-4 h-4 rounded-full border-2 border-gray-200 border-t-orange-500 animate-spin" />
+              </div>
             )}
           </div>
         </section>

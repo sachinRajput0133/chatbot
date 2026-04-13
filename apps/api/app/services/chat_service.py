@@ -30,6 +30,11 @@ Answer questions based ONLY on the provided context.
 If the answer is not in the context, say "I don't have that information. Please contact us directly."
 Keep responses concise and friendly. Do not make up information."""
 
+REPHRASE_PROMPT = """Given the conversation history and a new user message, rephrase the user message into a standalone search query for a knowledge base search.
+If the message is already a standalone query, return it as is.
+If it's an affirmative/negative (e.g. "yes", "ok", "sure") or follow-up, use the history to make it specific.
+Output ONLY the rephrased query string, no other text."""
+
 
 def _build_system_prompt(widget: "WidgetConfig | None", business_name: str) -> str:
     """Build system prompt from explicit override, brand voice fields, or default."""
@@ -160,6 +165,19 @@ async def _call_ai(messages: list[dict], system: str) -> tuple[str, int]:
         return data["choices"][0]["message"]["content"], 0
 
     raise HTTPException(status_code=500, detail="No AI provider available")
+
+
+async def _rephrase_query(history: list[dict], message: str) -> str:
+    """Use AI to rephrase the latest message into a standalone search query if needed."""
+    if len(message.split()) > 10:
+        return message  # Probably detailed enough
+
+    rephrase_messages = history + [{"role": "user", "content": message}]
+    try:
+        query, _ = await _call_ai(rephrase_messages, REPHRASE_PROMPT)
+        return query.strip().strip('"')
+    except Exception:
+        return message  # Fallback to original
 
 
 # ── Embeddings ─────────────────────────────────────────────────────────────────
@@ -307,18 +325,20 @@ async def handle_chat(
         
         # Publish the new user message to the websocket channel so if the visitor has multiple tabs
         # or if we ever add dashboard WS, it broadcasts.
-        from app.core.redis import publish_to_conversation
-        await publish_to_conversation(
-            str(conv.id), 
-            {"role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
-        )
+        from app.core.redis import publish_to_conversation, publish_to_tenant
+        msg_payload = {"role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
+        await publish_to_conversation(str(conv.id), msg_payload)
+        await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": msg_payload})
         return "__human_mode__", conv.id
 
 
-    embedding = await _embed_query(message)
-    context_chunks = await _retrieve_chunks(tenant.id, message, embedding, db)
-
+    # ── RAG Retrieval ──
     history = await get_conversation_history(str(bot_id), visitor_id)
+    search_query = await _rephrase_query(list(history), message)
+    
+    embedding = await _embed_query(search_query)
+    context_chunks = await _retrieve_chunks(tenant.id, search_query, embedding, db)
+
     messages = list(history) + [{"role": "user", "content": message}]
     context_text = "\n\n---\n\n".join(context_chunks) if context_chunks else "No relevant context found."
     full_system = f"{system_prompt}\n\n<context>\n{context_text}\n</context>"
@@ -332,5 +352,18 @@ async def handle_chat(
 
     await append_conversation_message(str(bot_id), visitor_id, "user", message)
     await append_conversation_message(str(bot_id), visitor_id, "assistant", reply)
+
+    # Broadcast updates to dashboard and widget
+    from app.core.redis import publish_to_conversation, publish_to_tenant
+    
+    # User message
+    user_payload = {"role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
+    await publish_to_conversation(str(conv.id), user_payload)
+    await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": user_payload})
+    
+    # AI reply
+    ai_payload = {"role": "assistant", "content": reply, "created_at": datetime.now(timezone.utc).isoformat()}
+    await publish_to_conversation(str(conv.id), ai_payload)
+    await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": ai_payload})
 
     return reply, conv.id

@@ -108,6 +108,9 @@ export const api = {
       body: JSON.stringify({ message }),
     }),
 
+  markAsRead: (conversationId: string) =>
+    request<void>(`/api/conversations/${conversationId}/read`, { method: "POST" }),
+
   getAnalytics: () => request<any>("/api/analytics/summary"),
 
   createCheckout: (plan: string) =>

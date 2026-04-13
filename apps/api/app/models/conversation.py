@@ -34,6 +34,9 @@ class WebConversation(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     mode: Mapped[str] = mapped_column(String(10), nullable=False, default="ai")  # 'ai' | 'human'
+    last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="conversations")
     messages: Mapped[list["WebMessage"]] = relationship(

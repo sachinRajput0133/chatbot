@@ -47,7 +47,11 @@ async def list_conversations(
             visitor_name=conv.visitor_name,
             visitor_email=conv.visitor_email,
             visitor_phone=conv.visitor_phone,
+            visitor_address=conv.visitor_address,
             external_user_id=conv.external_user_id,
+            mode=conv.mode,
+            last_read_at=conv.last_read_at,
+            is_unread=(conv.last_read_at is None) or (conv.last_message_at > conv.last_read_at)
         ))
     return out
 
@@ -83,7 +87,11 @@ async def get_conversation(
         visitor_name=conv.visitor_name,
         visitor_email=conv.visitor_email,
         visitor_phone=conv.visitor_phone,
+        visitor_address=conv.visitor_address,
         external_user_id=conv.external_user_id,
+        mode=conv.mode,
+        last_read_at=conv.last_read_at,
+        is_unread=(conv.last_read_at is None) or (conv.last_message_at > conv.last_read_at)
     )
 
 
@@ -229,11 +237,34 @@ async def agent_reply(
     await db.commit()
     await db.refresh(msg)
 
-    # Broadcast to widget
-    from app.core.redis import publish_to_conversation
-    await publish_to_conversation(
-        str(conv.id),
-        {"role": "agent", "content": payload.message, "created_at": msg.created_at.isoformat()}
-    )
+    # Broadcast to widget and dashboard
+    from app.core.redis import publish_to_conversation, publish_to_tenant
+    msg_payload = {"role": "agent", "content": payload.message, "created_at": msg.created_at.isoformat()}
+    await publish_to_conversation(str(conv.id), msg_payload)
+    await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": msg_payload})
 
     return msg
+
+
+@router.post("/{conversation_id}/read", status_code=204)
+async def mark_as_read(
+    conversation_id: uuid.UUID,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a conversation as read by the current agent."""
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    result = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
+            WebConversation.tenant_id == tenant.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    from datetime import datetime, timezone
+    conv.last_read_at = datetime.now(timezone.utc)
+    await db.commit()
