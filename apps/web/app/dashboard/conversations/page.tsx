@@ -99,8 +99,9 @@ export default function ConversationsPage() {
             ...existing,
             last_message_at: message.created_at,
             message_count: (existing.message_count || 0) + 1,
-            // If it's not the selected conversation, mark as unread
-            is_unread: selected?.id !== conversation_id ? true : existing.is_unread
+            // If it's not the selected conversation, mark as unread and increment count
+            is_unread: selected?.id !== conversation_id ? true : existing.is_unread,
+            unread_count: selected?.id !== conversation_id ? (existing.unread_count || 0) + 1 : 0
           };
           const others = prev.filter(c => c.id !== conversation_id);
           return [updated, ...others];
@@ -136,7 +137,7 @@ export default function ConversationsPage() {
     setMsgLoading(true);
 
     // Mark as read in local state immediately
-    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_unread: false } : c));
+    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_unread: false, unread_count: 0 } : c));
 
     try {
       api.markAsRead(conv.id).catch(console.error);
@@ -353,8 +354,10 @@ export default function ConversationsPage() {
                           {conv.message_count ?? 0} messages
                         </span>
                       </div>
-                      {conv.is_unread && (
-                        <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-sm shadow-orange-500/50" title="Unread messages" />
+                      {conv.unread_count > 0 && (
+                        <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-orange-500 text-[10px] font-black text-white shadow-sm shadow-orange-500/50">
+                          {conv.unread_count}
+                        </span>
                       )}
                     </div>
                   </button>

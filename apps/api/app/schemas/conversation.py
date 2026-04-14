@@ -41,6 +41,7 @@ class ConversationOut(BaseModel):
     mode: str = "ai"   # 'ai' | 'human'
     last_read_at: datetime | None = None
     is_unread: bool = False
+    unread_count: int = 0
 
     class Config:
         from_attributes = True

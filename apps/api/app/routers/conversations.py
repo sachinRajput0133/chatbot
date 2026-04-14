@@ -33,10 +33,19 @@ async def list_conversations(
 
     out = []
     for conv in conversations:
-        count_result = await db.execute(
-            select(func.count()).where(WebMessage.conversation_id == conv.id)
-        )
+        count_result = await db.execute(select(func.count()).where(WebMessage.conversation_id == conv.id))
         msg_count = count_result.scalar() or 0
+        
+        last_read_at = conv.last_read_at
+        unread_q = select(func.count()).where(WebMessage.conversation_id == conv.id)
+        if last_read_at:
+            unread_q = unread_q.where(WebMessage.created_at > last_read_at)
+        
+        unread_q = unread_q.where(WebMessage.role != MessageRole.agent)
+        
+        unread_result = await db.execute(unread_q)
+        unread_count = unread_result.scalar() or 0
+
         out.append(ConversationOut(
             id=conv.id,
             visitor_id=conv.visitor_id,
@@ -44,6 +53,7 @@ async def list_conversations(
             started_at=conv.started_at,
             last_message_at=conv.last_message_at,
             message_count=msg_count,
+            unread_count=unread_count,
             visitor_name=conv.visitor_name,
             visitor_email=conv.visitor_email,
             visitor_phone=conv.visitor_phone,
@@ -51,7 +61,7 @@ async def list_conversations(
             external_user_id=conv.external_user_id,
             mode=conv.mode,
             last_read_at=conv.last_read_at,
-            is_unread=(conv.last_read_at is None) or (conv.last_message_at > conv.last_read_at)
+            is_unread=unread_count > 0
         ))
     return out
 
@@ -93,10 +103,18 @@ async def get_conversation(
     if not conv:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Conversation not found")
-    count_result = await db.execute(
-        select(func.count()).where(WebMessage.conversation_id == conv.id)
-    )
+    count_result = await db.execute(select(func.count()).where(WebMessage.conversation_id == conv.id))
     msg_count = count_result.scalar() or 0
+
+    last_read_at = conv.last_read_at
+    unread_q = select(func.count()).where(WebMessage.conversation_id == conv.id)
+    if last_read_at:
+        unread_q = unread_q.where(WebMessage.created_at > last_read_at)
+    unread_q = unread_q.where(WebMessage.role != MessageRole.agent)
+
+    unread_result = await db.execute(unread_q)
+    unread_count = unread_result.scalar() or 0
+
     return ConversationOut(
         id=conv.id,
         visitor_id=conv.visitor_id,
@@ -104,6 +122,7 @@ async def get_conversation(
         started_at=conv.started_at,
         last_message_at=conv.last_message_at,
         message_count=msg_count,
+        unread_count=unread_count,
         visitor_name=conv.visitor_name,
         visitor_email=conv.visitor_email,
         visitor_phone=conv.visitor_phone,
@@ -111,7 +130,7 @@ async def get_conversation(
         external_user_id=conv.external_user_id,
         mode=conv.mode,
         last_read_at=conv.last_read_at,
-        is_unread=(conv.last_read_at is None) or (conv.last_message_at > conv.last_read_at)
+        is_unread=unread_count > 0
     )
 
 
