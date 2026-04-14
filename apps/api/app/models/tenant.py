@@ -52,3 +52,6 @@ class Tenant(Base):
     subscription: Mapped["Subscription | None"] = relationship(
         "Subscription", back_populates="tenant", uselist=False, cascade="all, delete-orphan"
     )
+    lead_capture_config: Mapped["LeadCaptureConfig | None"] = relationship(
+        "LeadCaptureConfig", back_populates="tenant", uselist=False, cascade="all, delete-orphan"
+    )

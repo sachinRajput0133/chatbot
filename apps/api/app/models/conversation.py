@@ -9,7 +9,8 @@ from app.core.database import Base
 
 class MessageRole(str, enum.Enum):
     user = "user"
-    assistant = "assistant"
+    assistant = "assistant"   # AI-generated reply
+    agent = "agent"           # Human agent reply from dashboard
 
 
 class WebConversation(Base):
@@ -21,11 +22,20 @@ class WebConversation(Base):
     )
     visitor_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     page_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    visitor_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    visitor_email: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    visitor_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    visitor_address: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    external_user_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     last_message_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    mode: Mapped[str] = mapped_column(String(10), nullable=False, default="ai")  # 'ai' | 'human'
+    last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="conversations")

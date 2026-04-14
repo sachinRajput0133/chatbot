@@ -15,6 +15,8 @@ from app.core.redis import get_conversation_history, append_conversation_message
 from app.models.tenant import Tenant, Plan
 from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.models.widget import WidgetConfig
+from app.schemas.chat import VisitorInfo
+from app.services import lead_capture_service
 
 PLAN_LIMITS = {
     Plan.free: 100,
@@ -27,6 +29,52 @@ DEFAULT_SYSTEM_PROMPT = """You are a helpful customer support assistant for {bus
 Answer questions based ONLY on the provided context.
 If the answer is not in the context, say "I don't have that information. Please contact us directly."
 Keep responses concise and friendly. Do not make up information."""
+
+REPHRASE_PROMPT = """Given the conversation history and a new user message, rephrase the user message into a standalone search query for a knowledge base search.
+If the message is already a standalone query, return it as is.
+If it's an affirmative/negative (e.g. "yes", "ok", "sure") or follow-up, use the history to make it specific.
+Output ONLY the rephrased query string, no other text."""
+
+
+def _build_system_prompt(widget: "WidgetConfig | None", business_name: str) -> str:
+    """Build system prompt from explicit override, brand voice fields, or default."""
+    if widget and widget.system_prompt:
+        return widget.system_prompt
+
+    if widget and any([widget.what_we_do, widget.tone_of_voice, widget.target_audience,
+                       widget.brand_values, widget.unique_selling_proposition,
+                       widget.company_email, widget.company_phone, widget.business_hours]):
+        lines = [f"You are a helpful assistant for {widget.bot_name} ({business_name})."]
+        if widget.tone_of_voice:
+            lines.append(f"Tone of voice: {widget.tone_of_voice}.")
+        if widget.what_we_do:
+            lines.append(f"What we do: {widget.what_we_do}.")
+        if widget.target_audience:
+            lines.append(f"Our target audience: {widget.target_audience}.")
+        if widget.brand_values:
+            lines.append(f"Our values: {widget.brand_values}.")
+        if widget.unique_selling_proposition:
+            lines.append(f"What makes us unique: {widget.unique_selling_proposition}.")
+        contact_parts = []
+        if widget.business_hours:
+            contact_parts.append(f"Business hours: {widget.business_hours}")
+        if widget.company_email:
+            contact_parts.append(f"Email: {widget.company_email}")
+        if widget.company_phone:
+            contact_parts.append(f"Phone: {widget.company_phone}")
+        if widget.company_address:
+            contact_parts.append(f"Address: {widget.company_address}")
+        if contact_parts:
+            lines.append(". ".join(contact_parts) + ".")
+        lines.append(
+            "Answer questions based ONLY on the provided context. "
+            "If the answer is not in the context, say \"I don't have that information — "
+            f"please contact us{f' at {widget.company_email}' if widget.company_email else ' directly'}.\" "
+            "Keep responses concise and friendly. Do not make up information."
+        )
+        return "\n".join(lines)
+
+    return DEFAULT_SYSTEM_PROMPT.format(business_name=business_name)
 
 
 # ── Provider detection ─────────────────────────────────────────────────────────
@@ -119,6 +167,19 @@ async def _call_ai(messages: list[dict], system: str) -> tuple[str, int]:
     raise HTTPException(status_code=500, detail="No AI provider available")
 
 
+async def _rephrase_query(history: list[dict], message: str) -> str:
+    """Use AI to rephrase the latest message into a standalone search query if needed."""
+    if len(message.split()) > 10:
+        return message  # Probably detailed enough
+
+    rephrase_messages = history + [{"role": "user", "content": message}]
+    try:
+        query, _ = await _call_ai(rephrase_messages, REPHRASE_PROMPT)
+        return query.strip().strip('"')
+    except Exception:
+        return message  # Fallback to original
+
+
 # ── Embeddings ─────────────────────────────────────────────────────────────────
 
 async def _embed_query(query: str) -> list[float] | None:
@@ -168,6 +229,7 @@ async def _get_or_create_conversation(
     tenant_id: uuid.UUID, visitor_id: str,
     conversation_id: uuid.UUID | None, page_url: str | None,
     db: AsyncSession,
+    user_info: VisitorInfo | None = None,
 ) -> WebConversation:
     if conversation_id:
         result = await db.execute(
@@ -179,8 +241,25 @@ async def _get_or_create_conversation(
         conv = result.scalar_one_or_none()
         if conv:
             conv.last_message_at = datetime.now(timezone.utc)
+            # Update identity fields if the user provided them and they changed
+            if user_info:
+                if user_info.name:
+                    conv.visitor_name = user_info.name
+                if user_info.email:
+                    conv.visitor_email = user_info.email
+                if user_info.phone:
+                    conv.visitor_phone = user_info.phone
             return conv
-    conv = WebConversation(tenant_id=tenant_id, visitor_id=visitor_id, page_url=page_url)
+    # New conversation — populate identity fields from user_info if present
+    conv = WebConversation(
+        tenant_id=tenant_id,
+        visitor_id=visitor_id,
+        page_url=page_url,
+        visitor_name=user_info.name if user_info else None,
+        visitor_email=user_info.email if user_info else None,
+        visitor_phone=user_info.phone if user_info else None,
+        external_user_id=user_info.user_id if user_info else None,
+    )
     db.add(conv)
     await db.flush()
     return conv
@@ -192,6 +271,7 @@ async def handle_chat(
     bot_id: uuid.UUID, message: str, visitor_id: str,
     conversation_id: uuid.UUID | None, page_url: str | None,
     db: AsyncSession,
+    user_info: VisitorInfo | None = None,
 ) -> tuple[str, uuid.UUID]:
 
     result = await db.execute(select(Tenant).where(Tenant.bot_id == bot_id))
@@ -205,15 +285,60 @@ async def handle_chat(
 
     result = await db.execute(select(WidgetConfig).where(WidgetConfig.tenant_id == tenant.id))
     widget = result.scalar_one_or_none()
-    system_prompt = (widget.system_prompt if widget and widget.system_prompt else None) or \
-        DEFAULT_SYSTEM_PROMPT.format(business_name=tenant.business_name)
+    system_prompt = _build_system_prompt(widget, tenant.business_name)
 
-    conv = await _get_or_create_conversation(tenant.id, visitor_id, conversation_id, page_url, db)
+    # If user is identified, use a stable visitor_id based on their external user ID
+    if user_info and user_info.user_id:
+        visitor_id = f"usr_{user_info.user_id}"
 
-    embedding = await _embed_query(message)
-    context_chunks = await _retrieve_chunks(tenant.id, message, embedding, db)
+    # Fetch/create conversation BEFORE building the lead collection prompt so we can
+    # check which fields are already known and avoid asking for them again.
+    conv = await _get_or_create_conversation(tenant.id, visitor_id, conversation_id, page_url, db, user_info)
 
+    # Append lead collection instructions, skipping fields the visitor already provided.
+    lead_config = await lead_capture_service.get_config(tenant.id, db)
+    if lead_config:
+        system_prompt += lead_capture_service.build_lead_collection_prompt(
+            lead_config,
+            known_name=conv.visitor_name,
+            known_email=conv.visitor_email,
+            known_phone=conv.visitor_phone,
+            known_address=getattr(conv, "visitor_address", None),
+        )
+
+    # Extract contact info from the user's message and update conversation record
+    if lead_config and lead_config.enabled:
+        extracted = lead_capture_service.extract_contact_info(message)
+        if extracted.get("name") and not conv.visitor_name:
+            conv.visitor_name = extracted["name"]
+        if extracted.get("email") and not conv.visitor_email:
+            conv.visitor_email = extracted["email"]
+        if extracted.get("phone") and not conv.visitor_phone:
+            conv.visitor_phone = extracted["phone"]
+
+    # ── Human Agent Takeover ──
+    # If a human is talking, save the user message and skip the AI completely.
+    if conv.mode == "human":
+        db.add(WebMessage(conversation_id=conv.id, role=MessageRole.user, content=message))
+        await db.commit()
+        await append_conversation_message(str(bot_id), visitor_id, "user", message)
+        
+        # Publish the new user message to the websocket channel so if the visitor has multiple tabs
+        # or if we ever add dashboard WS, it broadcasts.
+        from app.core.redis import publish_to_conversation, publish_to_tenant
+        msg_payload = {"role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
+        await publish_to_conversation(str(conv.id), msg_payload)
+        await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": msg_payload})
+        return "__human_mode__", conv.id
+
+
+    # ── RAG Retrieval ──
     history = await get_conversation_history(str(bot_id), visitor_id)
+    search_query = await _rephrase_query(list(history), message)
+    
+    embedding = await _embed_query(search_query)
+    context_chunks = await _retrieve_chunks(tenant.id, search_query, embedding, db)
+
     messages = list(history) + [{"role": "user", "content": message}]
     context_text = "\n\n---\n\n".join(context_chunks) if context_chunks else "No relevant context found."
     full_system = f"{system_prompt}\n\n<context>\n{context_text}\n</context>"
@@ -227,5 +352,18 @@ async def handle_chat(
 
     await append_conversation_message(str(bot_id), visitor_id, "user", message)
     await append_conversation_message(str(bot_id), visitor_id, "assistant", reply)
+
+    # Broadcast updates to dashboard and widget
+    from app.core.redis import publish_to_conversation, publish_to_tenant
+    
+    # User message
+    user_payload = {"role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
+    await publish_to_conversation(str(conv.id), user_payload)
+    await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": user_payload})
+    
+    # AI reply
+    ai_payload = {"role": "assistant", "content": reply, "created_at": datetime.now(timezone.utc).isoformat()}
+    await publish_to_conversation(str(conv.id), ai_payload)
+    await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": ai_payload})
 
     return reply, conv.id

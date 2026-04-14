@@ -7,8 +7,17 @@ class CreateCheckoutRequest(BaseModel):
 
 
 class CheckoutResponse(BaseModel):
-    checkout_url: str
-    gateway: str  # stripe | razorpay
+    gateway: str                    # stripe | razorpay
+    checkout_url: str | None = None # Stripe only — redirect URL
+    subscription_id: str | None = None  # Razorpay only — open modal with this
+    key_id: str | None = None           # Razorpay only — publishable key
+
+
+class VerifyRazorpayRequest(BaseModel):
+    payment_id: str       # razorpay_payment_id from checkout handler
+    subscription_id: str  # razorpay_subscription_id from checkout handler
+    signature: str        # razorpay_signature from checkout handler
+    plan: str             # starter | growth | enterprise
 
 
 class SubscriptionOut(BaseModel):
@@ -16,6 +25,7 @@ class SubscriptionOut(BaseModel):
     status: str
     gateway: str
     current_period_end: str | None
+    cancel_at_period_end: bool = False
 
     class Config:
         from_attributes = True

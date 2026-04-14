@@ -1,4 +1,8 @@
 {
+  "env": {
+    "MAX_THINKING_TOKENS": "10000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "50"
+  },
   "permissions": {
     "allow": [
       "Bash(.venv/bin/python -c ':*)",
@@ -17,7 +21,69 @@
       "Bash(.venv/bin/python -c \"from app.main import app; print\\('Import OK'\\)\")",
       "Bash(curl -s http://localhost:8000/api/platform/config)",
       "Bash(curl -s -X POST http://localhost:8000/api/auth/signup -H 'Content-Type: application/json' -d '{\"email\":\"user@example.com\",\"password\":\"Test123!\",\"business_name\":\"Acme Co\",\"country\":\"US\"}')",
-      "Bash(.venv/bin/python -c \"from app.workers.embedding_worker import _process_document_async; print\\('OK'\\)\")"
+      "Bash(.venv/bin/python -c \"from app.workers.embedding_worker import _process_document_async; print\\('OK'\\)\")",
+      "Bash(.venv/bin/pip show:*)",
+      "Bash(pnpm add:*)",
+      "Bash(ls /home/knovator/personal/chatbot/apps/web/.env*)",
+      "Bash(docker compose -f docker-compose.dev.yml up -d)",
+      "Bash(docker ps*)",
+      "Bash(node /home/knovator/personal/chatbot/.claude/hooks/session-start.js)",
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzM0NmZhM2Q3ZTUxOTQ0MzRiOGU3ZGU3NmRiMmI3YzA3EgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sX2U5NzNmMDg5ZjQxOTQ2OTVhYTNlMWI3NWNiZmIwYWU5EgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzEwZGViOGZhOWZmNTQzMWJhMDQxOGQ2YTQzYjE0NTYyEgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sX2Y1YjQyZTEzNjBmNDQ1ZmI4YWYzMTlmMGVhNjk1MTAzEgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
+      "Bash(curl -sL \"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ7Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpaCiVodG1sXzU3MTMwOWY2YzgxYTRkZWE4NzIwMTI2NWNlZDVmNjI4EgsSBxCE7NWXhwQYAZIBIwoKcHJvamVjdF9pZBIVQhM5NDExNzcwMjE5MjI3MTU4Njc3&filename=&opi=89354086\")",
+      "Bash(docker compose:*)",
+      "Bash(python -c ':*)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/google -H \"Content-Type: application/json\" -d '{\"credential\":\"test_invalid_token\"}')",
+      "Bash(.venv/bin/python3 -c ':*)",
+      "Bash(curl -s --max-time 5 \"https://oauth2.googleapis.com/tokeninfo?id_token=test\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(curl -s --max-time 5 \"https://httpbin.org/get\")",
+      "Bash(curl -s --max-time 5 \"https://www.googleapis.com/oauth2/v3/certs\")",
+      "Bash(.venv/bin/pip list:*)",
+      "Bash(curl -s -X POST http://localhost:8000/api/auth/google -H 'Content-Type: application/json' -d '{\"credential\": \"invalid.token.here\"}')",
+      "Bash(grep -v \"^$\")",
+      "Bash(ls docker-compose*)",
+      "Bash(ls apps/api/Dockerfile* apps/web/Dockerfile*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('scripts',{}\\)\\)\")"
+    ],
+    "additionalDirectories": [
+      "/home/knovator/personal/chatbot/.claude"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/knovator/personal/chatbot/.claude/hooks/session-start.js"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /home/knovator/personal/chatbot/.claude/hooks/post-edit.js"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f graphify-out/graph.json ] && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"graphify: Knowledge graph exists. Read graphify-out/GRAPH_REPORT.md for god nodes and community structure before searching raw files.\"}}' || true"
+          }
+        ]
+      }
     ]
   }
 }

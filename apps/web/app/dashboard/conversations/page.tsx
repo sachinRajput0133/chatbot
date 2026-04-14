@@ -1,80 +1,705 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api } from "@/lib/api/client";
+
+function timeAgo(dateStr: string): string {
+  if (!dateStr) return "—";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  return `${Math.floor(hrs / 24)}d`;
+}
+
+function formatTime(dateStr: string): string {
+  if (!dateStr) return "";
+  return new Date(dateStr).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
 
 export default function ConversationsPage() {
   const router = useRouter();
+
+  // ── Conversation list ──────────────────────────────────────────────
   const [conversations, setConversations] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
-  const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [convPage, setConvPage] = useState(1);
+  const [hasMoreConvs, setHasMoreConvs] = useState(true);
+  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false);
+  const [tenant, setTenant] = useState<any>(null);
 
+  // ── Messages + pagination ──────────────────────────────────────────
+  const [messages, setMessages] = useState<any[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [msgLoading, setMsgLoading] = useState(false);
+
+  // ── Agent input state ──────────────────────────────────────────────
+  const [agentInput, setAgentInput] = useState("");
+  const [sendingAgent, setSendingAgent] = useState(false);
+
+  // ── Scroll refs ────────────────────────────────────────────────────
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // ── Sidebar copy state ─────────────────────────────────────────────
+  const [copiedId, setCopiedId] = useState(false);
+
+  const copyVisitorId = useCallback((id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  }, []);
+
+  // ── Load conversation list on mount + Tenant context ───────────────
   useEffect(() => {
-    api.listConversations()
-      .then(setConversations)
+    api.me().then(res => setTenant(res.tenant));
+    
+    api.listConversations(1)
+      .then(res => {
+        setConversations(res);
+        setHasMoreConvs(res.length === 20); // Default limit is 20
+      })
       .catch(() => router.push("/login"))
       .finally(() => setLoading(false));
   }, []);
 
+  // ── Real-time via WebSocket ───────────────────────────────────────
+  useEffect(() => {
+    if (!tenant?.id) return;
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/^https?:\/\//, "") || "localhost:8000";
+    const ws = new WebSocket(`${protocol}//${baseUrl}/api/ws/tenant/${tenant.id}`);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === "new_message") {
+        const { conversation_id, message } = data;
+
+        // 1. Update list position and preview text
+        setConversations((prev) => {
+          const idx = prev.findIndex(c => c.id === conversation_id);
+          if (idx === -1) {
+            // New conversation arrived — we might want to refresh the list or prepend?
+            // For now, let's just refresh page 1 if it's a completely new convo
+            api.listConversations(1).then(setConversations);
+            return prev;
+          }
+          const existing = prev[idx];
+          const updated = { 
+            ...existing, 
+            last_message_at: message.created_at,
+            message_count: (existing.message_count || 0) + 1,
+            // If it's not the selected conversation, mark as unread
+            is_unread: selected?.id !== conversation_id ? true : existing.is_unread
+          };
+          const others = prev.filter(c => c.id !== conversation_id);
+          return [updated, ...others];
+        });
+
+        // 2. If it's the currently open conversation, append the message
+        if (selected?.id === conversation_id) {
+          setMessages((prev) => {
+            // Avoid duplicate messages if already sent by this client
+            if (prev.some(m => m.id === message.id || (m.content === message.content && m.role === message.role && Math.abs(new Date(m.created_at).getTime() - new Date(message.created_at).getTime()) < 1000))) {
+              return prev;
+            }
+            return [...prev, message];
+          });
+          api.markAsRead(conversation_id).catch(console.error);
+          requestAnimationFrame(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          });
+        }
+      }
+    };
+
+    return () => ws.close();
+  }, [tenant, selected?.id]);
+
+  // ── Open conversation — load latest page, scroll to bottom ────────
   async function openConversation(conv: any) {
+    // Reset state immediately for fast visual feedback
     setSelected(conv);
-    const msgs = await api.getMessages(conv.id);
-    setMessages(msgs);
+    setMessages([]);
+    setHasMore(false);
+    setNextCursor(null);
+    setMsgLoading(true);
+
+    // Mark as read in local state immediately
+    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_unread: false } : c));
+
+    try {
+      api.markAsRead(conv.id).catch(console.error);
+      
+      const [page, fresh] = await Promise.all([
+        api.getMessages(conv.id),
+        api.getConversation(conv.id),
+      ]);
+      setMessages(page.messages);
+      setHasMore(page.has_more);
+      setNextCursor(page.next_cursor);
+      setSelected(fresh);
+
+      // Scroll to bottom after messages paint
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+      });
+    } finally {
+      setMsgLoading(false);
+    }
   }
 
+  // ── Toggle AI / Human Mode ────────────────────────────────────────
+  async function toggleMode() {
+    if (!selected) return;
+    const newMode = selected.mode === "human" ? "ai" : "human";
+    try {
+      const updated = await api.setConversationMode(selected.id, newMode);
+      setSelected(updated);
+      
+      // Update in the list as well to keep cache fresh although it's not super necessary
+      setConversations((prev: any[]) => prev.map((c: any) => c.id === updated.id ? updated : c));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to toggle mode");
+    }
+  }
+
+  // ── Send Agent Reply ──────────────────────────────────────────────
+  async function handleSendAgent() {
+    if (!selected || !agentInput.trim() || sendingAgent) return;
+    
+    setSendingAgent(true);
+    try {
+      const newMsg = await api.sendAgentReply(selected.id, agentInput);
+      setAgentInput("");
+      setMessages((prev: any[]) => [...prev, newMsg]);
+      setSelected((prev: any) => prev ? { ...prev, last_message_at: newMsg.created_at } : null);
+      
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to send message");
+    } finally {
+      setSendingAgent(false);
+    }
+  }
+
+  // ── Load older messages — prepend while preserving scroll pos ─────
+  const loadMoreMessages = useCallback(async () => {
+    if (!selected || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+
+    const container = scrollContainerRef.current;
+    const prevScrollHeight = container?.scrollHeight ?? 0;
+
+    try {
+      const page = await api.getMessages(selected.id, nextCursor);
+      setMessages((prev) => [...page.messages, ...prev]);
+      setHasMore(page.has_more);
+      setNextCursor(page.next_cursor);
+
+      // Restore scroll position so old messages appear above without jumping
+      requestAnimationFrame(() => {
+        if (container) {
+          const newScrollHeight = container.scrollHeight;
+          container.scrollTop = newScrollHeight - prevScrollHeight;
+        }
+      });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [selected, nextCursor, loadingMore]);
+
+  // ── Scroll listener — trigger load when near top ──────────────────
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    if (container.scrollTop < 80 && hasMore && !loadingMore) {
+      loadMoreMessages();
+    }
+  }, [hasMore, loadingMore, loadMoreMessages]);
+
+  // ── Load more conversations (sidebar infinite scroll) ────────────
+  const loadMoreConversations = useCallback(async () => {
+    if (loadingMoreConvs || !hasMoreConvs) return;
+    setLoadingMoreConvs(true);
+    try {
+      const nextPage = convPage + 1;
+      const results = await api.listConversations(nextPage);
+      if (results.length < 20) setHasMoreConvs(false);
+      setConversations(prev => [...prev, ...results]);
+      setConvPage(nextPage);
+    } finally {
+      setLoadingMoreConvs(false);
+    }
+  }, [convPage, hasMoreConvs, loadingMoreConvs]);
+
+  const handleSidebarScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 100 && hasMoreConvs && !loadingMoreConvs) {
+      loadMoreConversations();
+    }
+  };
+
+  // ── Filtered conversation list ────────────────────────────────────
+  const filtered = conversations.filter((c) => {
+    if (search === "") return true;
+    const q = search.toLowerCase();
+    return (
+      c.visitor_name?.toLowerCase().includes(q) ||
+      c.visitor_email?.toLowerCase().includes(q) ||
+      c.visitor_phone?.toLowerCase().includes(q) ||
+      c.visitor_id?.toLowerCase().includes(q) ||
+      c.page_url?.toLowerCase().includes(q)
+    );
+  });
+
   return (
-    <div className="max-w-4xl">
-      <h1 className="text-2xl font-bold mb-6">Conversations</h1>
-      {loading ? (
-        <div className="text-gray-400">Loading...</div>
-      ) : conversations.length === 0 ? (
-        <div className="bg-white border rounded-xl p-12 text-center text-gray-400">
-          <div className="text-4xl mb-3">💬</div>
-          <p>No conversations yet. Share your embed code to start getting chats!</p>
+    <div className="flex flex-col" style={{ height: "100vh", fontFamily: "'Manrope', sans-serif" }}>
+
+      {/* Top Header */}
+      <header className="h-20 bg-white/80 backdrop-blur-md flex justify-between items-center px-10 border-b border-gray-100 shrink-0 z-10">
+        <div className="flex items-center gap-10">
+          <h1 className="font-extrabold text-2xl text-gray-900 tracking-tight">Conversations</h1>
+          <div className="relative">
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-400" style={{ fontSize: "18px" }}>
+              search
+            </span>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search across all sessions..."
+              className="pl-11 pr-6 py-2.5 rounded-full bg-gray-100 border-none outline-none w-80 text-sm font-medium text-gray-700 focus:ring-2 focus:ring-orange-500/20"
+            />
+          </div>
         </div>
-      ) : (
-        <div className="flex gap-4 h-[560px]">
-          {/* List */}
-          <div className="w-64 bg-white border rounded-xl overflow-y-auto">
-            {conversations.map((conv, i) => (
-              <button
-                key={conv.id}
-                onClick={() => openConversation(conv)}
-                className={`w-full text-left p-4 border-b last:border-0 hover:bg-gray-50 transition ${selected?.id === conv.id ? "bg-indigo-50" : ""}`}
-              >
-                <div className="text-sm font-medium text-gray-800 truncate">Visitor {conv.visitor_id.slice(-6)}</div>
-                <div className="text-xs text-gray-400 mt-0.5">{conv.message_count} messages · {new Date(conv.last_message_at).toLocaleDateString()}</div>
-                {conv.page_url && <div className="text-xs text-indigo-400 truncate mt-0.5">{conv.page_url}</div>}
-              </button>
-            ))}
+        <div className="flex items-center gap-4">
+          <span className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-full text-xs font-bold">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
+            {conversations.length} Sessions
+          </span>
+        </div>
+      </header>
+
+      {/* Split View */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* ── Left: Session List ── */}
+        <section className="w-80 shrink-0 flex flex-col border-r border-gray-100 overflow-hidden" style={{ backgroundColor: "#f3f4f5" }}>
+          <div className="p-6 flex items-center justify-between shrink-0">
+            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Session List</span>
+            {!loading && (
+              <span className="px-3 py-1 rounded-full bg-orange-100 text-orange-700 text-[10px] font-black uppercase tracking-widest">
+                {conversations.length} Total
+              </span>
+            )}
           </div>
 
-          {/* Messages */}
-          <div className="flex-1 bg-white border rounded-xl flex flex-col">
-            {!selected ? (
-              <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
-                Select a conversation
+          <div 
+            className="flex-1 overflow-y-auto px-4 pb-6 space-y-2"
+            onScroll={handleSidebarScroll}
+          >
+            {loading ? (
+              <div className="text-gray-400 text-sm font-bold text-center py-10">Loading...</div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm">
+                  <span className="material-symbols-outlined text-gray-300" style={{ fontSize: "28px" }}>forum</span>
+                </div>
+                <p className="text-gray-400 text-xs font-bold">No conversations yet</p>
+                <p className="text-gray-300 text-xs mt-1">Share your embed code to start</p>
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`max-w-xs px-4 py-2.5 rounded-2xl text-sm ${
-                      msg.role === "user"
-                        ? "bg-indigo-600 text-white self-end rounded-br-sm"
-                        : "bg-gray-100 text-gray-800 self-start rounded-bl-sm"
+              filtered.map((conv) => {
+                const isActive = selected?.id === conv.id;
+                return (
+                  <button
+                    key={conv.id}
+                    onClick={() => openConversation(conv)}
+                    className={`w-full text-left p-5 rounded-2xl transition-all duration-200 border ${
+                      isActive
+                        ? "bg-white shadow-sm border-orange-200 ring-1 ring-orange-100"
+                        : "border-transparent hover:bg-gray-200"
                     }`}
                   >
-                    {msg.content}
-                  </div>
-                ))}
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-sm font-bold text-gray-900 truncate">
+                        {conv.visitor_name || `Visitor #${conv.visitor_id?.slice(-6).toUpperCase()}`}
+                      </span>
+                      <span className="text-[10px] font-bold text-gray-400 shrink-0 ml-2">
+                        {timeAgo(conv.last_message_at)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 leading-relaxed mb-3 line-clamp-2">
+                      {conv.visitor_email || conv.page_url || "No page URL"}
+                    </p>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${isActive ? "bg-emerald-500 animate-pulse" : "bg-gray-300"}`} />
+                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                          {conv.message_count ?? 0} messages
+                        </span>
+                      </div>
+                      {conv.is_unread && (
+                        <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-sm shadow-orange-500/50" title="Unread messages" />
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+            {loadingMoreConvs && (
+              <div className="flex justify-center py-4">
+                <div className="w-4 h-4 rounded-full border-2 border-gray-200 border-t-orange-500 animate-spin" />
               </div>
             )}
           </div>
-        </div>
-      )}
+        </section>
+
+        {/* ── Center: Message Transcript ── */}
+        <section className="flex-1 flex flex-col overflow-hidden bg-white">
+          {!selected ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-4">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "#a93200" + "15" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: "32px", color: "#a93200", fontVariationSettings: "'FILL' 1" }}>
+                  chat
+                </span>
+              </div>
+              <div className="text-center">
+                <p className="font-bold text-gray-700 mb-1">Select a conversation</p>
+                <p className="text-sm text-gray-400">Click a session from the list to view messages</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Chat header */}
+              <div className="px-10 py-5 bg-white border-b border-gray-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ backgroundColor: "#a93200" + "15" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: "24px", color: "#a93200", fontVariationSettings: "'FILL' 1" }}>
+                      person
+                    </span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-extrabold text-lg text-gray-900 leading-tight">
+                        {selected.visitor_name || `Visitor #${selected.visitor_id?.slice(-6).toUpperCase()}`}
+                      </h3>
+                      <span className="px-2 py-0.5 rounded bg-green-100 text-[10px] font-black text-green-700 uppercase">
+                        Live
+                      </span>
+                      {selected.mode === "human" && (
+                        <span className="px-2 py-0.5 rounded bg-indigo-100 text-[10px] font-black text-indigo-700 uppercase ml-1 shadow-sm">
+                          Human Mode
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                      {selected.visitor_email && (
+                        <span className="text-xs text-orange-600 font-medium">{selected.visitor_email}</span>
+                      )}
+                      {selected.visitor_phone && (
+                        <span className="text-xs text-gray-400 font-medium">{selected.visitor_phone}</span>
+                      )}
+                      {!selected.visitor_email && (
+                        <span className="text-xs text-gray-400 font-medium">{selected.page_url || "Unknown page"}</span>
+                      )}
+                      <span className="text-xs text-gray-300">·</span>
+                      <span className="text-xs text-gray-400 font-medium">Started {formatTime(selected.started_at)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-gray-400 mr-2">
+                    {selected.message_count ?? messages.length} messages
+                  </span>
+                  <button
+                    onClick={toggleMode}
+                    className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 outline-none flex items-center gap-2 ${
+                      selected.mode === "human" 
+                        ? "bg-indigo-600 text-white shadow-md hover:bg-indigo-700 ring-2 ring-indigo-500/20" 
+                        : "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                    }`}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>
+                      {selected.mode === "human" ? "person" : "smart_toy"}
+                    </span>
+                    {selected.mode === "human" ? "Resume AI" : "Takeover"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Messages — scrollable container with infinite scroll */}
+              <div
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto px-10 py-6 flex flex-col items-center"
+                onScroll={handleScroll}
+              >
+                <div className="w-full max-w-3xl flex flex-col gap-0">
+
+                  {/* Load-more spinner (top) */}
+                  {loadingMore && (
+                    <div className="flex justify-center py-4">
+                      <div className="w-5 h-5 rounded-full border-2 border-gray-200 border-t-orange-500 animate-spin" />
+                    </div>
+                  )}
+
+                  {/* Beginning-of-conversation label */}
+                  {!hasMore && messages.length > 0 && !msgLoading && (
+                    <div className="flex items-center gap-3 py-6">
+                      <div className="flex-1 h-px bg-gray-100" />
+                      <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest whitespace-nowrap">
+                        Beginning of conversation
+                      </span>
+                      <div className="flex-1 h-px bg-gray-100" />
+                    </div>
+                  )}
+
+                  {/* Initial loading skeleton */}
+                  {msgLoading ? (
+                    <div className="space-y-6 pt-4 pb-4">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className={`flex gap-4 ${i % 2 === 0 ? "flex-row-reverse" : ""}`}>
+                          <div className="w-10 h-10 rounded-xl bg-gray-100 animate-pulse shrink-0" />
+                          <div className={`space-y-2 flex-1 flex flex-col ${i % 2 === 0 ? "items-end" : "items-start"}`}>
+                            <div className={`h-12 rounded-3xl animate-pulse bg-gray-100 ${i % 2 === 0 ? "w-48" : "w-72"}`} />
+                            <div className="h-2 w-16 bg-gray-100 rounded animate-pulse" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : messages.length === 0 ? (
+                    <div className="text-center text-gray-400 text-sm py-10">No messages in this conversation</div>
+                  ) : (
+                    <div className="space-y-8 pt-4 pb-4">
+                      {messages.map((msg) => {
+                        const isUser = msg.role === "user";
+                        const isAgent = msg.role === "agent";
+                        
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`flex gap-5 w-full ${isUser ? "flex-row-reverse" : ""}`}
+                          >
+                            {/* Avatar */}
+                            <div
+                              className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-white shadow-md"
+                              style={{ backgroundColor: isUser ? "#191c1d" : isAgent ? "#4f46e5" : "#a93200" }}
+                            >
+                              <span
+                                className="material-symbols-outlined"
+                                style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}
+                              >
+                                {isUser ? "person" : isAgent ? "support_agent" : "smart_toy"}
+                              </span>
+                            </div>
+
+                            {/* Bubble + timestamp */}
+                            <div className={`space-y-2 flex flex-col ${isUser ? "items-end" : "items-start"} flex-1`}>
+                              <div
+                                className={`px-6 py-4 text-sm leading-relaxed ${
+                                  isUser
+                                    ? "text-white rounded-[2rem] rounded-tr-none"
+                                    : isAgent
+                                      ? "text-white rounded-[2rem] rounded-tl-none bg-indigo-600 shadow-md"
+                                      : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
+                                }`}
+                                style={isUser ? { backgroundColor: "#a93200" } : {}}
+                              >
+                                {msg.content}
+                              </div>
+                              <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">
+                                {isUser ? "Visitor" : isAgent ? "Human Agent" : "Bot"} · {formatTime(msg.created_at)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Bottom anchor for initial scroll */}
+                  <div ref={messagesEndRef} />
+                </div>
+              </div>
+
+              {/* Agent Input Bar (Only visible in human mode) */}
+              {selected.mode === "human" && (
+                <div className="px-10 py-6 bg-white border-t border-gray-100 shrink-0 shadow-[0_-10px_40px_rgba(0,0,0,0.03)] z-10">
+                  <div className="flex items-end gap-3 max-w-3xl mx-auto">
+                    <div className="flex-1 relative">
+                      <textarea
+                        value={agentInput}
+                        onChange={(e) => setAgentInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendAgent();
+                          }
+                        }}
+                        placeholder="Type your reply as a human agent..."
+                        className="w-full resize-none bg-gray-50 border border-gray-200 rounded-3xl pl-6 pr-6 pt-4 pb-4 outline-none text-sm text-gray-800 transition-all focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10"
+                        rows={1}
+                        style={{ minHeight: "56px", maxHeight: "150px" }}
+                      />
+                    </div>
+                    <button
+                      onClick={handleSendAgent}
+                      disabled={!agentInput.trim() || sendingAgent}
+                      className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 disabled:opacity-50 hover:bg-indigo-700 transition-all text-white shadow-lg shadow-indigo-500/30 outline-none focus:ring-4 focus:ring-indigo-500/30"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}>
+                        send
+                      </span>
+                    </button>
+                  </div>
+                  <div className="text-center mt-3">
+                    <span className="text-[10px] font-bold text-gray-400">
+                      Press <kbd className="font-mono text-gray-500 bg-gray-100 px-1 py-0.5 rounded">Enter</kbd> to send
+                    </span>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* ── Right: Metadata Sidebar ── */}
+        {selected && (
+          <aside className="hidden xl:flex w-72 shrink-0 flex-col overflow-y-auto p-7 border-l border-gray-100" style={{ backgroundColor: "#f3f4f5" }}>
+            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-7">Metadata &amp; Context</h4>
+
+            <div className="space-y-8">
+              {/* Page URL */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Active Page</label>
+                <div className="p-3.5 rounded-2xl bg-white text-xs font-bold truncate border border-gray-200 shadow-sm text-orange-600">
+                  {selected.page_url || "—"}
+                </div>
+              </div>
+
+              {/* Session Info */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Session Info</label>
+                <div className="space-y-2">
+                  {[
+                    { label: "Messages", value: selected.message_count ?? messages.length },
+                    { label: "Started", value: selected.started_at ? new Date(selected.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—" },
+                    { label: "Last Active", value: timeAgo(selected.last_message_at) + " ago" },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm"
+                    >
+                      <span className="text-gray-400 font-medium">{item.label}</span>
+                      <span className="font-black text-gray-900">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Customer Info */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Customer Info</label>
+                <div className="space-y-2">
+                  {[
+                    { icon: "person", label: "Name", value: selected.visitor_name, color: "text-gray-900" },
+                    { icon: "mail", label: "Email", value: selected.visitor_email, color: "text-orange-600" },
+                    { icon: "phone", label: "Phone", value: selected.visitor_phone, color: "text-gray-900" },
+                    { icon: "home", label: "Address", value: selected.visitor_address, color: "text-gray-900" },
+                  ].map(({ icon, label, value, color }) => (
+                    <div key={label} className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm gap-2">
+                      <span className="text-gray-400 font-medium flex items-center gap-1.5 shrink-0">
+                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>{icon}</span>
+                        {label}
+                      </span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={`font-bold truncate ${value ? color : "text-gray-300"}`}>
+                          {value || "—"}
+                        </span>
+                        {value && (
+                          <button
+                            onClick={() => navigator.clipboard.writeText(value)}
+                            title={`Copy ${label}`}
+                            className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>content_copy</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {selected.external_user_id && (
+                    <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm gap-2">
+                      <span className="text-gray-400 font-medium flex items-center gap-1.5 shrink-0">
+                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>badge</span>
+                        User ID
+                      </span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono text-[10px] text-gray-500 truncate">{selected.external_user_id}</span>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(selected.external_user_id)}
+                          title="Copy User ID"
+                          className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>content_copy</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Visitor ID */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Visitor ID</label>
+                <div className="flex items-center gap-2 p-3.5 rounded-2xl bg-white border border-gray-200 shadow-sm">
+                  <span className="flex-1 text-[10px] font-mono text-gray-500 break-all leading-relaxed">
+                    {selected.visitor_id}
+                  </span>
+                  <button
+                    onClick={() => copyVisitorId(selected.visitor_id)}
+                    title="Copy Visitor ID"
+                    className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
+                      {copiedId ? "check" : "content_copy"}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Tags */}
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tags</label>
+                <div className="flex flex-wrap gap-2">
+                  <span className="px-3 py-1.5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-black uppercase tracking-widest border border-orange-200">
+                    Web Chat
+                  </span>
+                  <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                    selected.visitor_name || selected.visitor_email
+                      ? "bg-green-100 text-green-700 border border-green-200"
+                      : "bg-gray-200 text-gray-600"
+                  }`}>
+                    {selected.visitor_name || selected.visitor_email ? "Identified" : "Anonymous"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

@@ -34,6 +34,7 @@ class Subscription(Base):
         SAEnum(SubscriptionStatus), default=SubscriptionStatus.active, nullable=False
     )
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_at_period_end: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
