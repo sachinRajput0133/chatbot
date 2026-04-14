@@ -58,14 +58,17 @@ export default function ConversationsPage() {
 
   // ── Load conversation list on mount + Tenant context ───────────────
   useEffect(() => {
-    api.me().then(res => setTenant(res.tenant));
-    
+    api.me().then(res => setTenant(res.tenant)).catch(() => { });
+
     api.listConversations(1)
       .then(res => {
         setConversations(res);
         setHasMoreConvs(res.length === 20); // Default limit is 20
       })
-      .catch(() => router.push("/login"))
+      .catch((err) => {
+        if (err?.status === 401) router.push("/login");
+        // other errors (network, 5xx) — stay on page, show empty state
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -92,8 +95,8 @@ export default function ConversationsPage() {
             return prev;
           }
           const existing = prev[idx];
-          const updated = { 
-            ...existing, 
+          const updated = {
+            ...existing,
             last_message_at: message.created_at,
             message_count: (existing.message_count || 0) + 1,
             // If it's not the selected conversation, mark as unread
@@ -137,7 +140,7 @@ export default function ConversationsPage() {
 
     try {
       api.markAsRead(conv.id).catch(console.error);
-      
+
       const [page, fresh] = await Promise.all([
         api.getMessages(conv.id),
         api.getConversation(conv.id),
@@ -163,7 +166,7 @@ export default function ConversationsPage() {
     try {
       const updated = await api.setConversationMode(selected.id, newMode);
       setSelected(updated);
-      
+
       // Update in the list as well to keep cache fresh although it's not super necessary
       setConversations((prev: any[]) => prev.map((c: any) => c.id === updated.id ? updated : c));
     } catch (err) {
@@ -175,14 +178,14 @@ export default function ConversationsPage() {
   // ── Send Agent Reply ──────────────────────────────────────────────
   async function handleSendAgent() {
     if (!selected || !agentInput.trim() || sendingAgent) return;
-    
+
     setSendingAgent(true);
     try {
       const newMsg = await api.sendAgentReply(selected.id, agentInput);
       setAgentInput("");
       setMessages((prev: any[]) => [...prev, newMsg]);
       setSelected((prev: any) => prev ? { ...prev, last_message_at: newMsg.created_at } : null);
-      
+
       requestAnimationFrame(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
       });
@@ -306,7 +309,7 @@ export default function ConversationsPage() {
             )}
           </div>
 
-          <div 
+          <div
             className="flex-1 overflow-y-auto px-4 pb-6 space-y-2"
             onScroll={handleSidebarScroll}
           >
@@ -327,11 +330,10 @@ export default function ConversationsPage() {
                   <button
                     key={conv.id}
                     onClick={() => openConversation(conv)}
-                    className={`w-full text-left p-5 rounded-2xl transition-all duration-200 border ${
-                      isActive
-                        ? "bg-white shadow-sm border-orange-200 ring-1 ring-orange-100"
-                        : "border-transparent hover:bg-gray-200"
-                    }`}
+                    className={`w-full text-left p-5 rounded-2xl transition-all duration-200 border ${isActive
+                      ? "bg-white shadow-sm border-orange-200 ring-1 ring-orange-100"
+                      : "border-transparent hover:bg-gray-200"
+                      }`}
                   >
                     <div className="flex justify-between items-start mb-2">
                       <span className="text-sm font-bold text-gray-900 truncate">
@@ -426,11 +428,10 @@ export default function ConversationsPage() {
                   </span>
                   <button
                     onClick={toggleMode}
-                    className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 outline-none flex items-center gap-2 ${
-                      selected.mode === "human" 
-                        ? "bg-indigo-600 text-white shadow-md hover:bg-indigo-700 ring-2 ring-indigo-500/20" 
-                        : "bg-orange-100 text-orange-700 hover:bg-orange-200"
-                    }`}
+                    className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 outline-none flex items-center gap-2 ${selected.mode === "human"
+                      ? "bg-indigo-600 text-white shadow-md hover:bg-indigo-700 ring-2 ring-indigo-500/20"
+                      : "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                      }`}
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>
                       {selected.mode === "human" ? "person" : "smart_toy"}
@@ -486,7 +487,7 @@ export default function ConversationsPage() {
                       {messages.map((msg) => {
                         const isUser = msg.role === "user";
                         const isAgent = msg.role === "agent";
-                        
+
                         return (
                           <div
                             key={msg.id}
@@ -508,13 +509,12 @@ export default function ConversationsPage() {
                             {/* Bubble + timestamp */}
                             <div className={`space-y-2 flex flex-col ${isUser ? "items-end" : "items-start"} flex-1`}>
                               <div
-                                className={`px-6 py-4 text-sm leading-relaxed ${
-                                  isUser
-                                    ? "text-white rounded-[2rem] rounded-tr-none"
-                                    : isAgent
-                                      ? "text-white rounded-[2rem] rounded-tl-none bg-indigo-600 shadow-md"
-                                      : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
-                                }`}
+                                className={`px-6 py-4 text-sm leading-relaxed ${isUser
+                                  ? "text-white rounded-[2rem] rounded-tr-none"
+                                  : isAgent
+                                    ? "text-white rounded-[2rem] rounded-tl-none bg-indigo-600 shadow-md"
+                                    : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
+                                  }`}
                                 style={isUser ? { backgroundColor: "#a93200" } : {}}
                               >
                                 {msg.content}
@@ -687,11 +687,10 @@ export default function ConversationsPage() {
                   <span className="px-3 py-1.5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-black uppercase tracking-widest border border-orange-200">
                     Web Chat
                   </span>
-                  <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                    selected.visitor_name || selected.visitor_email
-                      ? "bg-green-100 text-green-700 border border-green-200"
-                      : "bg-gray-200 text-gray-600"
-                  }`}>
+                  <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${selected.visitor_name || selected.visitor_email
+                    ? "bg-green-100 text-green-700 border border-green-200"
+                    : "bg-gray-200 text-gray-600"
+                    }`}>
                     {selected.visitor_name || selected.visitor_email ? "Identified" : "Anonymous"}
                   </span>
                 </div>
