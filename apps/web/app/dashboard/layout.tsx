@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSelector } from "react-redux";
+import { useState, useEffect, useRef } from "react";
 import type { RootState } from "@/lib/store";
 import { clearToken } from "@/lib/api/client";
 import { ChatbotWidget } from "@/app/components/ChatbotWidget";
@@ -23,6 +24,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const tenant = useSelector((s: RootState) => s.auth.tenant);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    async function fetchUnread() {
+      const token = typeof window !== "undefined" ? localStorage.getItem("cb_token") : null;
+      if (!token) return;
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const res = await fetch(`${apiUrl}/api/conversations/unread-count`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUnreadCount(data.count ?? 0);
+        }
+      } catch {
+        // silently ignore network errors
+      }
+    }
+
+    fetchUnread();
+    intervalRef.current = setInterval(fetchUnread, 30_000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
+
+  // Clear badge immediately when user opens the conversations page
+  useEffect(() => {
+    if (pathname === "/dashboard/conversations") {
+      setUnreadCount(0);
+    }
+  }, [pathname]);
 
   function logout() {
     clearToken();
@@ -59,6 +94,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <nav className="flex-1 space-y-1">
           {NAV.map((item) => {
             const active = pathname === item.href;
+            const isConversations = item.href === "/dashboard/conversations";
+            const showBadge = isConversations && unreadCount > 0 && !active;
             return (
               <Link
                 key={item.href}
@@ -75,7 +112,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 >
                   {item.icon}
                 </span>
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {showBadge && (
+                  <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-orange-600 text-white text-[10px] font-black flex items-center justify-center leading-none">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
               </Link>
             );
           })}

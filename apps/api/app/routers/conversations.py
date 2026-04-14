@@ -1,7 +1,7 @@
 import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 
 from app.core.database import get_db
 from app.core.security import get_current_user_id
@@ -54,6 +54,26 @@ async def list_conversations(
             is_unread=(conv.last_read_at is None) or (conv.last_message_at > conv.last_read_at)
         ))
     return out
+
+
+@router.get("/unread-count")
+async def get_unread_count(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return count of conversations with unread messages."""
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    result = await db.execute(
+        select(func.count()).select_from(WebConversation).where(
+            WebConversation.tenant_id == tenant.id,
+            or_(
+                WebConversation.last_read_at.is_(None),
+                WebConversation.last_read_at < WebConversation.last_message_at,
+            ),
+        )
+    )
+    count = result.scalar() or 0
+    return {"count": count}
 
 
 @router.get("/{conversation_id}", response_model=ConversationOut)

@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const WIDGET_URL = process.env.NEXT_PUBLIC_WIDGET_URL || "http://localhost:8000/widget.js";
 
 export function ChatbotWidget() {
   const loaded = useRef(false);
@@ -38,7 +39,7 @@ export function ChatbotWidget() {
 
         const script = document.createElement("script");
         script.id = "__cb_script";
-        script.src = `${API_URL}/widget/widget.js`;
+        script.src = WIDGET_URL;
         document.body.appendChild(script);
       })
       .catch(() => {/* not logged in */});
