@@ -9,6 +9,25 @@ from app.models.conversation import WebConversation
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
 
+async def _forward_redis_to_ws(pubsub, websocket: WebSocket):
+    """Read messages from Redis pub/sub and forward them to the WebSocket client."""
+    async for message in pubsub.listen():
+        if message["type"] == "message":
+            data = message["data"]
+            if isinstance(data, bytes):
+                data = data.decode()
+            await websocket.send_text(data)
+
+
+async def _wait_for_ws_disconnect(websocket: WebSocket):
+    """Drain any incoming WebSocket frames so disconnects are detected promptly."""
+    try:
+        while True:
+            await websocket.receive_text()
+    except (WebSocketDisconnect, Exception):
+        pass
+
+
 @router.websocket("/{conversation_id}")
 async def websocket_chat_endpoint(websocket: WebSocket, conversation_id: str):
     """
@@ -16,10 +35,11 @@ async def websocket_chat_endpoint(websocket: WebSocket, conversation_id: str):
     The widget connects here to receive streaming AI tokens or agent chat messages.
     """
     await websocket.accept()
-    
-    # Optional: Verify conversation exists (without blocking connection forever if we don't care)
+
     async with AsyncSessionLocal() as db:
-        result = await db.execute(select(WebConversation).where(WebConversation.id == conversation_id))
+        result = await db.execute(
+            select(WebConversation).where(WebConversation.id == conversation_id)
+        )
         if not result.scalar_one_or_none():
             await websocket.close(code=1008)
             return
@@ -28,35 +48,25 @@ async def websocket_chat_endpoint(websocket: WebSocket, conversation_id: str):
     pubsub = redis.pubsub()
     channel = f"{CONV_CHANNEL_PREFIX}:{conversation_id}"
     await pubsub.subscribe(channel)
+    # Give the subscribe command a moment to settle before we start listening
+    await asyncio.sleep(0.05)
+
+    listen_task = asyncio.ensure_future(_forward_redis_to_ws(pubsub, websocket))
+    disconnect_task = asyncio.ensure_future(_wait_for_ws_disconnect(websocket))
 
     try:
-        # Keep listening to the channel until the client disconnects.
-        while True:
-            # We use get_message with timeout to also detect if the WebSocket disconnected
-            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if message:
-                if message["type"] == "message":
-                    payload = message["data"]
-                    # payload is a JSON string containing the message data
-                    await websocket.send_text(payload)
-            else:
-                # We do a tiny ping/recv on the websocket just to detect client disconnects quicker
-                # Instead of receiving data (which we don't expect from the client yet), we just wait.
-                # Actually, await websocket.receive_text() would block. Let's just catch disconnection elsewhere.
-                # Since get_message handles the async yielding, sleeping is fine, but to catch disconnects 
-                # we can run a parallel task waiting for disconnect.
-                pass
-                
-            # If the client disconnected, we'll get a ConnectionClosed exception naturally 
-            # either when sending, or we can await receive in the background.
-            
-    except WebSocketDisconnect:
-        pass
+        await asyncio.wait(
+            [listen_task, disconnect_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
     except Exception as e:
         print(f"WebSocket error: {e}")
     finally:
+        listen_task.cancel()
+        disconnect_task.cancel()
+        await asyncio.gather(listen_task, disconnect_task, return_exceptions=True)
         await pubsub.unsubscribe(channel)
-        await pubsub.close()
+        await pubsub.aclose()
 
 
 @router.websocket("/tenant/{tenant_id}")
@@ -66,22 +76,27 @@ async def tenant_dashboard_websocket(websocket: WebSocket, tenant_id: str):
     The dashboard connects here to receive updates for ALL conversations.
     """
     await websocket.accept()
-    
-    from app.core.redis import get_redis, TENANT_CHANNEL_PREFIX
+
+    from app.core.redis import TENANT_CHANNEL_PREFIX
     redis = await get_redis()
     pubsub = redis.pubsub()
     channel = f"{TENANT_CHANNEL_PREFIX}:{tenant_id}"
     await pubsub.subscribe(channel)
+    await asyncio.sleep(0.05)
+
+    listen_task = asyncio.ensure_future(_forward_redis_to_ws(pubsub, websocket))
+    disconnect_task = asyncio.ensure_future(_wait_for_ws_disconnect(websocket))
 
     try:
-        while True:
-            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
-            if message and message["type"] == "message":
-                await websocket.send_text(message["data"])
-    except WebSocketDisconnect:
-        pass
+        await asyncio.wait(
+            [listen_task, disconnect_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
     except Exception as e:
         print(f"Tenant WebSocket error: {e}")
     finally:
+        listen_task.cancel()
+        disconnect_task.cancel()
+        await asyncio.gather(listen_task, disconnect_task, return_exceptions=True)
         await pubsub.unsubscribe(channel)
-        await pubsub.close()
+        await pubsub.aclose()

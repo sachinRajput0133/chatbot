@@ -78,7 +78,7 @@ export default function ConversationsPage() {
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/^https?:\/\//, "") || "localhost:8000";
-    const ws = new WebSocket(`${protocol}//${baseUrl}/api/ws/tenant/${tenant.id}`);
+    const ws = new WebSocket(`${protocol}//${baseUrl}/ws/tenant/${tenant.id}`);
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);

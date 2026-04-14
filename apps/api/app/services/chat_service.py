@@ -325,8 +325,9 @@ async def handle_chat(
         
         # Publish the new user message to the websocket channel so if the visitor has multiple tabs
         # or if we ever add dashboard WS, it broadcasts.
+        import uuid as _uuid
         from app.core.redis import publish_to_conversation, publish_to_tenant
-        msg_payload = {"role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
+        msg_payload = {"id": str(_uuid.uuid4()), "role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
         await publish_to_conversation(str(conv.id), msg_payload)
         await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": msg_payload})
         return "__human_mode__", conv.id
@@ -357,12 +358,13 @@ async def handle_chat(
     from app.core.redis import publish_to_conversation, publish_to_tenant
     
     # User message
-    user_payload = {"role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
+    import uuid as _uuid
+    user_payload = {"id": str(_uuid.uuid4()), "role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
     await publish_to_conversation(str(conv.id), user_payload)
     await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": user_payload})
-    
+
     # AI reply
-    ai_payload = {"role": "assistant", "content": reply, "created_at": datetime.now(timezone.utc).isoformat()}
+    ai_payload = {"id": str(_uuid.uuid4()), "role": "assistant", "content": reply, "created_at": datetime.now(timezone.utc).isoformat()}
     await publish_to_conversation(str(conv.id), ai_payload)
     await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": ai_payload})
 
