@@ -1,6 +1,5 @@
 "use client";
-export const dynamic = "force-dynamic";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api/client";
 
@@ -140,7 +139,7 @@ function CancelModal({
   );
 }
 
-export default function BillingPage() {
+function BillingPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const justPaid = searchParams.get("success") === "true";
@@ -462,5 +461,13 @@ export default function BillingPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function BillingPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" /></div>}>
+      <BillingPageInner />
+    </Suspense>
   );
 }
