@@ -31,6 +31,7 @@ class WidgetConfigOut(BaseModel):
     what_we_do: str | None = None
     unique_selling_proposition: str | None = None
     system_prompt: str | None = None
+    suggested_questions: list[str] = []
     # Lead capture (included so widget knows what form to show)
     lead_capture: LeadCaptureInfo = LeadCaptureInfo()
 
@@ -45,6 +46,7 @@ class WidgetConfigUpdate(BaseModel):
     position: WidgetPosition | None = None
     avatar_url: str | None = None
     system_prompt: str | None = None
+    suggested_questions: list[str] | None = None
     # Brand Voice
     company_website: str | None = None
     company_email: str | None = None

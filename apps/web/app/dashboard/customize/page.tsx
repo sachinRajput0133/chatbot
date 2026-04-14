@@ -25,6 +25,7 @@ export default function CustomizePage() {
     brand_values: "",
     what_we_do: "",
     unique_selling_proposition: "",
+    suggested_questions: [] as string[],
   });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -41,8 +42,10 @@ export default function CustomizePage() {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.updateWidgetConfig(config);
+      const cleanQuestions = config.suggested_questions.filter(q => q.trim().length > 0);
+      await api.updateWidgetConfig({ ...config, suggested_questions: cleanQuestions });
       setSaved(true);
+      setConfig(prev => ({ ...prev, suggested_questions: cleanQuestions }));
       setTimeout(() => setSaved(false), 2000);
     } finally {
       setLoading(false);
@@ -134,6 +137,55 @@ export default function CustomizePage() {
                   {...field("welcome_message")}
                   className="w-full bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all"
                 />
+              </div>
+              <div className="space-y-4 pt-4 border-t border-gray-200">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-bold text-gray-500 ml-1">Suggested Questions</label>
+                  <button 
+                    type="button" 
+                    onClick={() => setConfig({ ...config, suggested_questions: [...config.suggested_questions, ""] })}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>add</span>
+                    Add Question
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 ml-1 mb-2">Show clickable ideas to visitors before they type.</p>
+                
+                <div className="space-y-3">
+                  {config.suggested_questions.length === 0 ? (
+                      <div className="text-center py-6 bg-white border border-dashed border-gray-300 rounded-xl">
+                          <p className="text-xs text-gray-400 font-medium">No suggested questions added.</p>
+                      </div>
+                  ) : (
+                    config.suggested_questions.map((q, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-gray-300" style={{ fontSize: "18px" }}>chat_bubble</span>
+                        <input
+                          type="text"
+                          value={q}
+                          onChange={(e) => {
+                            const newQs = [...config.suggested_questions];
+                            newQs[idx] = e.target.value;
+                            setConfig({ ...config, suggested_questions: newQs });
+                          }}
+                          placeholder="e.g. Do you offer a free trial?"
+                          className="flex-1 bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-2.5 text-gray-900 text-sm font-medium outline-none transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newQs = config.suggested_questions.filter((_, i) => i !== idx);
+                            setConfig({ ...config, suggested_questions: newQs });
+                          }}
+                          className="w-10 h-10 flex items-center justify-center rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition-colors shrink-0"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>delete</span>
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
 
@@ -368,12 +420,29 @@ export default function CustomizePage() {
               </div>
             </div>
 
-            <div className="p-4 bg-white border-t border-gray-100 shrink-0">
-              <div className="flex items-center gap-2 bg-gray-100 px-4 py-2.5 rounded-full">
-                <input className="bg-transparent outline-none flex-1 text-xs font-medium text-gray-400" disabled placeholder="Type a message..." type="text" />
-                <span className="material-symbols-outlined" style={{ fontSize: "18px", color: config.primary_color, fontVariationSettings: "'FILL' 1" }}>send</span>
+            <div className="p-4 flex-1 flex flex-col justify-end bg-white relative">
+              {/* Preview Suggested Questions block */}
+              {config.suggested_questions.filter(q => q.trim().length > 0).length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3 justify-end mt-4">
+                  {config.suggested_questions.filter(q => q.trim().length > 0).map((q, idx) => (
+                    <div 
+                      key={idx} 
+                      className="px-3 py-1.5 text-[10px] font-bold rounded-xl border border-gray-200 text-gray-600 bg-white shadow-sm cursor-pointer hover:border-indigo-500 transition-colors text-right max-w-full truncate"
+                      style={{ color: config.primary_color, borderColor: config.primary_color + "60" }}
+                    >
+                      {q}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 relative z-10 w-full pt-1">
+                <div className="flex items-center gap-2 bg-gray-100 px-4 py-2.5 rounded-full">
+                  <input className="bg-transparent outline-none flex-1 text-xs font-medium text-gray-400" disabled placeholder="Type a message..." type="text" />
+                  <span className="material-symbols-outlined" style={{ fontSize: "18px", color: config.primary_color, fontVariationSettings: "'FILL' 1" }}>send</span>
+                </div>
+                <p className="text-[9px] text-center text-gray-300 mt-2">Powered by ChatBot AI</p>
               </div>
-              <p className="text-[9px] text-center text-gray-300 mt-2">Powered by ChatBot AI</p>
             </div>
           </div>
 

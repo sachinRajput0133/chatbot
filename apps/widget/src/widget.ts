@@ -37,6 +37,7 @@ interface WidgetConfig {
   position: "bottom-right" | "bottom-left";
   avatar_url: string | null;
   lead_capture: LeadCaptureInfo;
+  suggested_questions: string[];
 }
 
 declare global {
@@ -242,6 +243,14 @@ declare global {
       #cb-send svg { width: 18px; height: 18px; fill: white; }
       #cb-powered { text-align: center; font-size: 10px; color: #bbb; padding: 4px 0 8px; }
 
+      #cb-suggested { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+      .cb-sq-btn { 
+        background: #fff; border: 1px solid currentColor; border-radius: 12px; 
+        padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; 
+        transition: all 0.2s; opacity: 0.9;
+      }
+      .cb-sq-btn:hover { background: #f8f9fa; opacity: 1; transform: translateY(-1px); }
+
       /* ── Lead capture form ──────────────────────────────────────────────── */
       #cb-lead-form {
         flex: 1; overflow-y: auto; padding: 20px 16px; display: flex;
@@ -412,6 +421,9 @@ declare global {
     function showChatView() {
       // Show welcome message and focus input
       appendMessage(wc.welcome_message, "bot", messagesEl);
+      if (wc.suggested_questions && wc.suggested_questions.length > 0) {
+        appendSuggested(wc.suggested_questions, wc.primary_color, messagesEl, (text) => doSubmit(text));
+      }
       inputEl.focus();
     }
 
@@ -453,6 +465,9 @@ declare global {
     // Show welcome immediately if no lead form
     if (!shouldShowLeadForm) {
       appendMessage(wc.welcome_message, "bot", messagesEl);
+      if (wc.suggested_questions && wc.suggested_questions.length > 0) {
+        appendSuggested(wc.suggested_questions, wc.primary_color, messagesEl, (text) => doSubmit(text));
+      }
     }
 
     let ws: WebSocket | null = null;
@@ -484,13 +499,18 @@ declare global {
 
     if (conversationId) connectWebSocket(conversationId);
 
-    async function submit() {
-      const text = inputEl.value.trim();
+    async function doSubmit(presetText?: string) {
+      const text = presetText ?? inputEl.value.trim();
       if (!text || sendBtn.disabled) return;
 
-      inputEl.value = "";
-      inputEl.style.height = "auto";
+      if (!presetText) {
+        inputEl.value = "";
+        inputEl.style.height = "auto";
+      }
       sendBtn.disabled = true;
+
+      const sqWrapper = document.getElementById("cb-suggested");
+      if (sqWrapper) sqWrapper.remove();
 
       appendMessage(text, "user", messagesEl);
       if (currentTypingIndicator) currentTypingIndicator.remove();
@@ -522,11 +542,11 @@ declare global {
       }
     }
 
-    sendBtn.addEventListener("click", submit);
+    sendBtn.addEventListener("click", () => doSubmit());
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        submit();
+        doSubmit();
       }
     });
 
@@ -560,6 +580,26 @@ declare global {
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
     return div;
+  }
+
+  function appendSuggested(questions: string[], color: string, container: HTMLElement, onClick: (text: string) => void) {
+    const wrapper = document.createElement("div");
+    wrapper.id = "cb-suggested";
+    questions.filter(q => q.trim().length > 0).forEach(q => {
+      const btn = document.createElement("button");
+      btn.className = "cb-sq-btn";
+      btn.textContent = q;
+      btn.style.color = color;
+      btn.onclick = () => {
+        wrapper.remove();
+        onClick(q);
+      };
+      wrapper.appendChild(btn);
+    });
+    if (wrapper.childNodes.length > 0) {
+      container.appendChild(wrapper);
+      container.scrollTop = container.scrollHeight;
+    }
   }
 
   function escHtml(str: string): string {

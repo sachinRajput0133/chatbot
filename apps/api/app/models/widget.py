@@ -1,6 +1,7 @@
 import uuid
 from sqlalchemy import String, Text, ForeignKey, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from app.core.database import Base
@@ -29,6 +30,9 @@ class WidgetConfig(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Optional: system prompt override per tenant
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggested_questions: Mapped[list[str]] = mapped_column(
+        postgresql.ARRAY(String), nullable=False, default=list, server_default="{}"
+    )
 
     # Brand Voice fields — used to auto-generate system prompt when system_prompt is blank
     company_website: Mapped[str | None] = mapped_column(String(512), nullable=True)
