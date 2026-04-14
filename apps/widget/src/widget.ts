@@ -40,18 +40,13 @@ interface WidgetConfig {
   suggested_questions: string[];
 }
 
-declare global {
-  interface Window {
-    ChatbotConfig: ChatbotConfig;
-  }
-}
 
 (function () {
   // Prevent double-init (React Strict Mode / multiple script loads)
   if ((window as any).__cb_loaded) return;
   (window as any).__cb_loaded = true;
 
-  const config: ChatbotConfig = window.ChatbotConfig;
+  const config: ChatbotConfig = (window as any).ChatbotConfig;
   if (!config || !config.botId) {
     console.warn("[Chatbot] Missing ChatbotConfig.botId");
     return;
@@ -108,7 +103,7 @@ declare global {
     localStorage.setItem(`cb_contact_${BOT_ID}`, JSON.stringify(info));
   }
   let collectedLeadInfo: { name: string; email: string; phone: string; address: string } | null = getStoredLeadInfo();
-  
+
   const seenMessageIds = new Set<string>();
   let currentTypingIndicator: HTMLElement | null = null;
 
@@ -193,63 +188,107 @@ declare global {
       #cb-bubble:hover { transform: scale(1.08); }
       #cb-bubble svg { width: 26px; height: 26px; fill: white; }
       #cb-panel {
-        position: fixed; bottom: 92px; width: 360px; max-height: 520px;
+        position: fixed; bottom: 92px; width: 406px; height: 832px; max-height: calc(100vh - 120px);
         background: #fff; border-radius: 16px; display: flex; flex-direction: column;
         box-shadow: 0 8px 32px rgba(0,0,0,0.15); z-index: 999999;
         overflow: hidden; transition: opacity 0.2s, transform 0.2s;
       }
       #cb-panel.cb-hidden { opacity: 0; pointer-events: none; transform: translateY(12px); }
       #cb-header {
-        background: ${color}; color: white; padding: 14px 16px;
-        display: flex; align-items: center; gap: 10px;
+        background: ${color}; color: white; padding: 16px 20px;
+        display: flex; align-items: center; justify-content: space-between;
       }
       #cb-header .cb-avatar {
-        width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.25);
-        display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+        width: 32px; height: 32px; border-radius: 50%; background: white;
+        display: flex; align-items: center; justify-content: center; font-size: 14px; color: #000; font-weight: bold; flex-shrink: 0; overflow: hidden;
       }
-      #cb-header .cb-title { font-weight: 600; font-size: 15px; }
-      #cb-header .cb-subtitle { font-size: 11px; opacity: 0.85; }
-      #cb-header button {
-        margin-left: auto; background: none; border: none; cursor: pointer;
-        color: white; padding: 4px; opacity: 0.8; line-height: 1;
+      #cb-header .cb-title { font-weight: 600; font-size: 14px; }
+      .cb-header-actions { display: flex; align-items: center; gap: 12px; position: relative; }
+      .cb-header-actions > button {
+        background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.8); padding: 0; display: flex;
       }
+      .cb-header-actions > button:hover { color: white; }
+      
+      #cb-menu {
+        position: absolute; top: calc(100% + 8px); right: 0; background: white; border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15); padding: 8px 0; min-width: 180px;
+        display: none; flex-direction: column; z-index: 1000; border: 1px solid #e4e4e7;
+      }
+      #cb-menu.cb-open { display: flex; }
+      .cb-menu-item {
+        padding: 10px 16px; font-size: 13px; color: #18181b; background: none; border: none;
+        text-align: left; cursor: pointer; display: flex; align-items: center; gap: 8px; width: 100%;
+      }
+      .cb-menu-item:hover { background: #f4f4f5; }
+      
+      #cb-history-view {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        background: white; z-index: 9999; display: flex; flex-direction: column;
+        transform: translateY(100%); transition: transform 0.25s ease;
+      }
+      #cb-history-view.cb-active { transform: translateY(0); }
+      .cb-history-header {
+        background: #111; color: white; padding: 16px 20px;
+        display: flex; align-items: center; justify-content: space-between;
+      }
+      .cb-history-header button { background: none; border: none; color: white; cursor: pointer; padding: 0; display: flex; }
+      .cb-history-list { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+      .cb-history-item {
+        padding: 14px; border-radius: 12px; border: 1px solid #e4e4e7; cursor: pointer;
+        transition: border-color 0.2s; background: white;
+      }
+      .cb-history-item:hover { border-color: #a1a1aa; background: #fafafa; }
+      .cb-hi-top { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+      .cb-hi-title { font-weight: 600; color: #18181b; }
+      .cb-hi-time { color: #71717a; }
+      .cb-hi-msg { font-size: 13px; color: #52525b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4; }
+      #cb-history-footer { padding: 24px; display: flex; justify-content: center; }
+      .cb-new-chat-btn {
+        background: #111; color: white; border-radius: 9999px; padding: 12px 24px;
+        font-size: 14px; font-weight: 500; border: none; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: opacity 0.2s;
+      }
+      .cb-new-chat-btn:hover { opacity: 0.8; }
+      
       #cb-messages {
-        flex: 1; overflow-y: auto; padding: 14px 12px; display: flex;
-        flex-direction: column; gap: 8px; scroll-behavior: smooth;
+        flex: 1; overflow-y: auto; padding: 16px; display: flex;
+        flex-direction: column; gap: 12px; scroll-behavior: smooth; font-size: 14px;
       }
-      .cb-msg { max-width: 80%; padding: 9px 13px; border-radius: 14px; font-size: 14px; line-height: 1.45; word-wrap: break-word; }
-      .cb-msg.cb-user { background: ${color}; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
-      .cb-msg.cb-bot { background: #f1f3f4; color: #1a1a1a; align-self: flex-start; border-bottom-left-radius: 4px; }
-      .cb-msg.cb-agent { background: #4f46e5; color: white; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #4338ca; }
-      .cb-typing { display: flex; gap: 4px; align-items: center; padding: 10px 13px; }
-      .cb-dot { width: 7px; height: 7px; border-radius: 50%; background: #999; animation: cb-bounce 1.2s infinite; }
+      .cb-msg { max-width: 85%; padding: 12px; border-radius: 12px; line-height: 1.45; word-wrap: break-word; white-space: pre-wrap; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+      .cb-msg.cb-user { background: ${color}; color: white; align-self: flex-end; border-radius: 12px 12px 4px 12px; }
+      .cb-msg.cb-bot { background: #f4f4f5; color: #18181b; align-self: flex-start; border-radius: 12px 12px 12px 4px; }
+      .cb-msg.cb-agent { background: #4f46e5; color: white; align-self: flex-start; border-radius: 12px 12px 12px 4px; border: 1px solid #4338ca; }
+      .cb-typing { display: flex; gap: 4px; align-items: center; padding: 12px; box-shadow: none; background: transparent; }
+      .cb-dot { width: 6px; height: 6px; border-radius: 50%; background: #9ca3af; animation: cb-bounce 1.2s infinite; }
       .cb-dot:nth-child(2) { animation-delay: 0.2s; }
       .cb-dot:nth-child(3) { animation-delay: 0.4s; }
-      @keyframes cb-bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
-      #cb-input-row { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #eee; }
-      #cb-input {
-        flex: 1; border: 1px solid #ddd; border-radius: 20px; padding: 9px 14px;
-        font-size: 14px; outline: none; resize: none; line-height: 1.4;
-        max-height: 80px; overflow-y: auto;
+      @keyframes cb-bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
+      #cb-input-wrapper {
+        display: flex; align-items: center; gap: 8px; background: #f9fafb;
+        border: 1px solid #e5e7eb; border-radius: 9999px; padding: 8px 8px 8px 16px; margin: 12px;
       }
-      #cb-input:focus { border-color: ${color}; }
+      #cb-input {
+        flex: 1; border: none; background: transparent; font-size: 14px;
+        outline: none; padding: 4px 0; color: #18181b;
+      }
       #cb-send {
-        width: 38px; height: 38px; border-radius: 50%; background: ${color};
+        width: 32px; height: 32px; border-radius: 50%; background: ${color};
         border: none; cursor: pointer; display: flex; align-items: center;
-        justify-content: center; flex-shrink: 0; align-self: flex-end;
-        transition: opacity 0.2s;
+        justify-content: center; flex-shrink: 0;
       }
       #cb-send:disabled { opacity: 0.5; cursor: not-allowed; }
-      #cb-send svg { width: 18px; height: 18px; fill: white; }
-      #cb-powered { text-align: center; font-size: 10px; color: #bbb; padding: 4px 0 8px; }
-
-      #cb-suggested { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 10px; }
-      .cb-sq-btn { 
-        background: #fff; border: 1px solid currentColor; border-radius: 12px; 
-        padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; 
-        transition: all 0.2s; opacity: 0.9;
+      #cb-send svg { width: 14px; height: 14px; fill: none; stroke: white; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      #cb-powered { display: flex; justify-content: center; padding-bottom: 8px; }
+      #cb-powered a {
+        display: flex; align-items: center; gap: 4px; font-size: 10px; color: #6b7280;
+        background: #f3f4f6; padding: 4px 8px; border-radius: 6px; text-decoration: none; font-weight: 500;
       }
-      .cb-sq-btn:hover { background: #f8f9fa; opacity: 1; transform: translateY(-1px); }
+      #cb-suggested { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: auto; padding-top: 12px; }
+      .cb-sq-btn { 
+        background: #fff; border: 1px solid #e4e4e7; border-radius: 20px; 
+        padding: 8px 16px; font-size: 14px; font-weight: normal; color: #18181b; cursor: pointer; 
+        transition: background-color 0.2s; display: inline-block;
+      }
+      .cb-sq-btn:hover { background: #f9fafb; }
 
       /* ── Lead capture form ──────────────────────────────────────────────── */
       #cb-lead-form {
@@ -385,21 +424,63 @@ declare global {
       </button>
       <div id="cb-panel" class="cb-hidden" style="${side}">
         <div id="cb-header">
-          <div class="cb-avatar">${wc.avatar_url ? `<img src="${wc.avatar_url}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : "🤖"}</div>
-          <div>
+          <div style="display:flex; align-items:center; gap: 12px;">
+            <div class="cb-avatar">${wc.avatar_url ? `<img src="${wc.avatar_url}" style="width:100%;height:100%;border-radius:50%;object-fit:cover">` : wc.bot_name.charAt(0).toUpperCase()}</div>
             <div class="cb-title">${escHtml(wc.bot_name)}</div>
-            <div class="cb-subtitle">Online · Typically replies instantly</div>
           </div>
-          <button onclick="document.getElementById('cb-panel').classList.add('cb-hidden')" aria-label="Close">✕</button>
+          <div class="cb-header-actions">
+            <button id="cb-menu-btn" aria-label="Menu">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+            </button>
+            <div id="cb-menu">
+              <button class="cb-menu-item" id="cb-mi-new">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                Start a new chat
+              </button>
+              <button class="cb-menu-item" id="cb-mi-end" style="color: #ef4444;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                End chat
+              </button>
+              <button class="cb-menu-item" id="cb-mi-history">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                View recent chats
+              </button>
+            </div>
+            <button onclick="document.getElementById('cb-panel').classList.add('cb-hidden')" aria-label="Close">
+              <svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20" xmlns="http://www.w3.org/2000/svg"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg>
+            </button>
+          </div>
         </div>
         <div id="cb-messages"></div>
-        <div id="cb-input-row">
-          <textarea id="cb-input" rows="1" placeholder="Type a message..." maxlength="1000"></textarea>
-          <button id="cb-send" aria-label="Send">
-            <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
-          </button>
+        <div id="cb-powered">
+          <a href="#" target="_blank">Powered by ChatBot AI</a>
         </div>
-        <div id="cb-powered">Powered by ChatBot AI</div>
+        <div id="cb-input-container" style="border-top: 1px solid #f3f4f6; flex-shrink: 0;">
+          <div id="cb-input-wrapper">
+            <input type="text" id="cb-input" placeholder="Ask me anything..." maxlength="1000">
+            <button id="cb-send" aria-label="Send">
+              <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 2L11 13"></path><path d="M22 2L15 22L11 13L2 9L22 2Z"></path></svg>
+            </button>
+          </div>
+        </div>
+        <div id="cb-history-view">
+          <div class="cb-history-header">
+            <button id="cb-hi-back" aria-label="Back">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+            </button>
+            <div style="font-weight:600; font-size:14px; flex:1; text-align:center;">Recent chats</div>
+            <button onclick="document.getElementById('cb-panel').classList.add('cb-hidden')" aria-label="Close">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg>
+            </button>
+          </div>
+          <div class="cb-history-list" id="cb-hi-list"></div>
+          <div id="cb-history-footer">
+            <button class="cb-new-chat-btn" id="cb-hi-new">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="5" y2="19"></line><line x1="5" x2="19" y1="12" y2="12"></line></svg>
+              Start a new chat
+            </button>
+          </div>
+        </div>
       </div>
     `;
 
@@ -408,9 +489,89 @@ declare global {
     const bubble = document.getElementById("cb-bubble")!;
     const panel = document.getElementById("cb-panel")!;
     const messagesEl = document.getElementById("cb-messages")!;
-    const inputRow = document.getElementById("cb-input-row")!;
-    const inputEl = document.getElementById("cb-input") as HTMLTextAreaElement;
+    const inputRow = document.getElementById("cb-input-container")!;
+    const inputEl = document.getElementById("cb-input") as HTMLInputElement;
     const sendBtn = document.getElementById("cb-send") as HTMLButtonElement;
+    
+    const menuBtn = document.getElementById("cb-menu-btn")!;
+    const menu = document.getElementById("cb-menu")!;
+    const historyView = document.getElementById("cb-history-view")!;
+    const hiList = document.getElementById("cb-hi-list")!;
+    
+    menuBtn.addEventListener("click", (e) => { e.stopPropagation(); menu.classList.toggle("cb-open"); });
+    document.addEventListener("click", () => menu.classList.remove("cb-open"));
+
+    function resetToNewChat() {
+      conversationId = null;
+      localStorage.removeItem(`cb_conv_${BOT_ID}`);
+      seenMessageIds.clear();
+      messagesEl.innerHTML = "";
+      if (ws) { ws.close(); ws = null; }
+      showChatView();
+    }
+
+    document.getElementById("cb-mi-new")!.addEventListener("click", () => { resetToNewChat(); historyView.classList.remove("cb-active"); });
+    document.getElementById("cb-mi-end")!.addEventListener("click", () => { resetToNewChat(); historyView.classList.remove("cb-active"); });
+    document.getElementById("cb-hi-new")!.addEventListener("click", () => { resetToNewChat(); historyView.classList.remove("cb-active"); });
+    
+    document.getElementById("cb-hi-back")!.addEventListener("click", () => historyView.classList.remove("cb-active"));
+
+    document.getElementById("cb-mi-history")!.addEventListener("click", async () => {
+      historyView.classList.add("cb-active");
+      hiList.innerHTML = `<div style="text-align:center; padding: 20px; color: #71717a; font-size: 13px;">Loading...</div>`;
+      try {
+        const res = await fetch(`${API_URL}/api/chat/${BOT_ID}/conversations?visitor_id=${visitorId}`);
+        if (!res.ok) throw new Error();
+        const chats = await res.json();
+        
+        hiList.innerHTML = "";
+        if (chats.length === 0) {
+          hiList.innerHTML = `<div style="text-align:center; padding: 20px; color: #71717a; font-size: 13px;">No recent chats found.</div>`;
+          return;
+        }
+
+        const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+        chats.forEach((c: any) => {
+          const item = document.createElement("div");
+          item.className = "cb-history-item";
+          
+          const dt = new Date(c.last_message_at);
+          const diffHours = (dt.getTime() - Date.now()) / (1000 * 60 * 60);
+          const timeStr = diffHours > -24 ? formatter.format(Math.round(diffHours), 'hour') : dt.toLocaleDateString();
+
+          item.innerHTML = `
+            <div class="cb-hi-top">
+              <div class="cb-hi-title">${escHtml(c.title)}</div>
+              <div class="cb-hi-time">${timeStr}</div>
+            </div>
+            <div class="cb-hi-msg">${escHtml(c.latest_message)}</div>
+          `;
+          
+          item.addEventListener("click", async () => {
+            historyView.classList.remove("cb-active");
+            conversationId = c.id;
+            setConversationId(c.id);
+            seenMessageIds.clear();
+            messagesEl.innerHTML = "";
+            if (ws) { ws.close(); ws = null; }
+            connectWebSocket(c.id);
+            
+            // Load messages
+            const hRes = await fetch(`${API_URL}/api/chat/${BOT_ID}/history?visitor_id=${visitorId}&conversation_id=${c.id}`);
+            if (hRes.ok) {
+              const msgs = await hRes.json();
+              msgs.forEach((m: any) => {
+                appendMessage(m.content, m.role === "assistant" ? "bot" : m.role === "agent" ? "agent" : "user", messagesEl);
+              });
+            }
+          });
+          
+          hiList.appendChild(item);
+        });
+      } catch (e) {
+        hiList.innerHTML = `<div style="text-align:center; padding: 20px; color: #ef4444; font-size: 13px;">Failed to load history.</div>`;
+      }
+    });
 
     // Determine whether to show lead form on first open
     const shouldShowLeadForm =
@@ -420,7 +581,8 @@ declare global {
 
     function showChatView() {
       // Show welcome message and focus input
-      appendMessage(wc.welcome_message, "bot", messagesEl);
+      const msgLines = (wc.welcome_message || "Hi! How can I help you today?").split(/\\n+/).filter(m => m.trim().length > 0);
+      msgLines.forEach(msg => appendMessage(msg, "bot", messagesEl));
       if (wc.suggested_questions && wc.suggested_questions.length > 0) {
         appendSuggested(wc.suggested_questions, wc.primary_color, messagesEl, (text) => doSubmit(text));
       }
@@ -464,7 +626,8 @@ declare global {
 
     // Show welcome immediately if no lead form
     if (!shouldShowLeadForm) {
-      appendMessage(wc.welcome_message, "bot", messagesEl);
+      const msgLines = (wc.welcome_message || "Hi! How can I help you today?").split(/\\n+/).filter(m => m.trim().length > 0);
+      msgLines.forEach(msg => appendMessage(msg, "bot", messagesEl));
       if (wc.suggested_questions && wc.suggested_questions.length > 0) {
         appendSuggested(wc.suggested_questions, wc.primary_color, messagesEl, (text) => doSubmit(text));
       }
@@ -492,7 +655,7 @@ declare global {
             }
             appendMessage(data.content, "bot", messagesEl);
           }
-        } catch(e) {}
+        } catch (e) { }
       };
       ws.onclose = () => { ws = null; };
     }
@@ -505,7 +668,6 @@ declare global {
 
       if (!presetText) {
         inputEl.value = "";
-        inputEl.style.height = "auto";
       }
       sendBtn.disabled = true;
 
@@ -519,7 +681,7 @@ declare global {
       try {
         const { reply, messageId } = await sendMessage(text);
         if (!ws && conversationId) connectWebSocket(conversationId);
-        
+
         if (messageId) seenMessageIds.add(messageId);
 
         if (currentTypingIndicator) {
@@ -550,18 +712,14 @@ declare global {
       }
     });
 
-    inputEl.addEventListener("input", () => {
-      inputEl.style.height = "auto";
-      inputEl.style.height = Math.min(inputEl.scrollHeight, 80) + "px";
-    });
   }
 
   function appendMessage(text: string, role: "user" | "bot" | "agent", container: HTMLElement, messageId?: string): HTMLElement {
     if (messageId && seenMessageIds.has(messageId)) {
-        // Find existing message with this ID if we want to replace, 
-        // but for now we just return the existing one or null.
-        // Our check at the call site already handles this mostly, but safety first.
-        return document.createElement("div"); // Dummy
+      // Find existing message with this ID if we want to replace, 
+      // but for now we just return the existing one or null.
+      // Our check at the call site already handles this mostly, but safety first.
+      return document.createElement("div"); // Dummy
     }
     if (messageId) seenMessageIds.add(messageId);
 

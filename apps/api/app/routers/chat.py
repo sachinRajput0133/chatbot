@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.models.tenant import Tenant
 from app.models.conversation import WebConversation, WebMessage
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.chat import ChatRequest, ChatResponse, ConversationSummary
 from app.services.chat_service import handle_chat
 
 router = APIRouter(tags=["chat"])
@@ -146,3 +146,63 @@ async def chat(
         user_info=data.user_info,
     )
     return ChatResponse(reply=reply, message_id=message_id, conversation_id=conversation_id)
+
+
+@router.get("/api/chat/{bot_id}/conversations", response_model=list[ConversationSummary])
+async def get_visitor_conversations(
+    bot_id: uuid.UUID,
+    visitor_id: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Public endpoint — returns recent conversations for a specific visitor.
+    """
+    result = await db.execute(
+        select(Tenant).where(Tenant.bot_id == bot_id, Tenant.is_active == True)
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    # Fetch recently updated conversations (max 20)
+    result = await db.execute(
+        select(WebConversation)
+        .where(
+            WebConversation.tenant_id == tenant.id,
+            WebConversation.visitor_id == visitor_id,
+        )
+        .order_by(WebConversation.last_message_at.desc())
+        .limit(20)
+    )
+    conversations = list(result.scalars().all())
+
+    summaries = []
+    for conv in conversations:
+        # Get first message to use as title
+        first_msg_res = await db.execute(
+            select(WebMessage).where(WebMessage.conversation_id == conv.id).order_by(WebMessage.created_at.asc()).limit(1)
+        )
+        first_msg = first_msg_res.scalar_one_or_none()
+        title = first_msg.content[:40] + "..." if first_msg and len(first_msg.content) > 40 else (first_msg.content if first_msg else "Chat with AI Agent")
+
+        # Get latest message
+        last_msg_res = await db.execute(
+            select(WebMessage).where(WebMessage.conversation_id == conv.id).order_by(WebMessage.created_at.desc()).limit(1)
+        )
+        last_msg = last_msg_res.scalar_one_or_none()
+        summary = last_msg.content[:60] + "..." if last_msg and len(last_msg.content) > 60 else (last_msg.content if last_msg else "")
+        # Add basic role prefix if agent/bot
+        if last_msg and last_msg.role != "user":
+            summary = f"Agent: {summary}"
+            
+        summaries.append(
+            ConversationSummary(
+                id=conv.id,
+                started_at=conv.started_at.isoformat(),
+                last_message_at=conv.last_message_at.isoformat(),
+                title=title,
+                latest_message=summary
+            )
+        )
+
+    return summaries

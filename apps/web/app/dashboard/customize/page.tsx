@@ -55,7 +55,7 @@ export default function CustomizePage() {
   function handleDiscard() {
     api.getWidgetConfig()
       .then((c: any) => setConfig((prev) => ({ ...prev, ...c })))
-      .catch(() => {});
+      .catch(() => { });
   }
 
   const field = (key: keyof typeof config) => ({
@@ -64,6 +64,9 @@ export default function CustomizePage() {
       setConfig({ ...config, [key]: e.target.value }),
   });
 
+  console.log(`🚀 ~ CustomizePage ~                   <input className="bg-transparent outline-none flex-1 text-[14px] text-zinc-900" disabled placeholder="Ask me anything...sasas" type="text" />
+:`, <input className="bg-transparent outline-none flex-1 text-[14px] text-zinc-900" disabled placeholder="Ask me anything..." type="text" />
+  )
   return (
     <div className="p-10 max-w-7xl" style={{ fontFamily: "'Manrope', sans-serif" }}>
       <div className="flex flex-col lg:flex-row gap-12">
@@ -97,11 +100,10 @@ export default function CustomizePage() {
                         key={pos}
                         type="button"
                         onClick={() => setConfig({ ...config, position: pos })}
-                        className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${
-                          config.position === pos
-                            ? "bg-white shadow-sm text-gray-900"
-                            : "text-gray-400 hover:text-gray-700"
-                        }`}
+                        className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${config.position === pos
+                          ? "bg-white shadow-sm text-gray-900"
+                          : "text-gray-400 hover:text-gray-700"
+                          }`}
                       >
                         {pos === "bottom-right" ? "Right" : "Left"}
                       </button>
@@ -132,17 +134,17 @@ export default function CustomizePage() {
 
               <div className="space-y-2">
                 <label className="text-sm font-bold text-gray-500 ml-1">Welcome Message</label>
-                <input
-                  type="text"
+                <textarea
+                  rows={3}
                   {...field("welcome_message")}
-                  className="w-full bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all"
+                  className="w-full bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all resize-none"
                 />
               </div>
               <div className="space-y-4 pt-4 border-t border-gray-200">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-bold text-gray-500 ml-1">Suggested Questions</label>
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     onClick={() => setConfig({ ...config, suggested_questions: [...config.suggested_questions, ""] })}
                     className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1"
                   >
@@ -151,12 +153,12 @@ export default function CustomizePage() {
                   </button>
                 </div>
                 <p className="text-xs text-gray-400 ml-1 mb-2">Show clickable ideas to visitors before they type.</p>
-                
+
                 <div className="space-y-3">
                   {config.suggested_questions.length === 0 ? (
-                      <div className="text-center py-6 bg-white border border-dashed border-gray-300 rounded-xl">
-                          <p className="text-xs text-gray-400 font-medium">No suggested questions added.</p>
-                      </div>
+                    <div className="text-center py-6 bg-white border border-dashed border-gray-300 rounded-xl">
+                      <p className="text-xs text-gray-400 font-medium">No suggested questions added.</p>
+                    </div>
                   ) : (
                     config.suggested_questions.map((q, idx) => (
                       <div key={idx} className="flex items-center gap-2">
@@ -353,9 +355,8 @@ export default function CustomizePage() {
               <button
                 type="submit"
                 disabled={loading}
-                className={`px-10 py-3 rounded-full font-bold shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5 disabled:opacity-60 ${
-                  saved ? "bg-emerald-600 text-white" : "bg-gray-900 text-white"
-                }`}
+                className={`px-10 py-3 rounded-full font-bold shadow-lg hover:shadow-xl transition-all hover:-translate-y-0.5 disabled:opacity-60 ${saved ? "bg-emerald-600 text-white" : "bg-gray-900 text-white"
+                  }`}
               >
                 {saved ? "Saved!" : loading ? "Saving..." : "Save Configuration"}
               </button>
@@ -364,84 +365,70 @@ export default function CustomizePage() {
         </div>
 
         {/* ── Right Column: Live Preview ── */}
-        <div className="lg:w-[380px] flex flex-col gap-6 shrink-0">
+        <div className="lg:w-[406px] flex flex-col gap-6 shrink-0">
           <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] px-2">Live Preview</h3>
 
           <div
-            className="relative w-full bg-gray-100 rounded-[2.5rem] overflow-hidden flex flex-col border-[12px] border-gray-900"
-            style={{ aspectRatio: "4/5" }}
+            className="relative w-full bg-gray-100 rounded-[2rem] overflow-hidden flex flex-col border-[8px] border-gray-900 shadow-2xl"
+            style={{ height: "832px" }}
           >
             <div
-              className="p-5 flex items-center justify-between text-white shrink-0"
+              className="p-4 flex items-center justify-between text-white shrink-0"
               style={{ backgroundColor: config.primary_color }}
             >
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-white" style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}>
-                    smart_toy
+                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shrink-0 overflow-hidden">
+                  <span className="text-black font-bold text-sm">
+                    {config.bot_name ? config.bot_name.charAt(0).toUpperCase() : "A"}
                   </span>
                 </div>
-                <div>
-                  <h4 className="font-bold text-sm">{config.bot_name || "Assistant"}</h4>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" />
-                    <span className="text-[10px] opacity-80 font-medium">Online &amp; Ready</span>
-                  </div>
-                </div>
+                <h4 className="font-semibold text-sm">{config.bot_name || "Assistant"}</h4>
               </div>
-              <span className="material-symbols-outlined cursor-pointer opacity-70" style={{ fontSize: "20px" }}>close</span>
-            </div>
-
-            <div className="flex-1 p-4 space-y-3 overflow-y-auto bg-white">
-              <div className="flex gap-2">
-                <div className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: config.primary_color + "22" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: "13px", color: config.primary_color, fontVariationSettings: "'FILL' 1" }}>smart_toy</span>
-                </div>
-                <div className="bg-gray-100 p-3 rounded-2xl rounded-tl-none max-w-[85%]">
-                  <p className="text-xs text-gray-600 leading-relaxed">{config.welcome_message || "Hi! How can I help you today?"}</p>
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <div className="bg-gray-900 text-white p-3 rounded-2xl rounded-tr-none max-w-[85%]">
-                  <p className="text-xs leading-relaxed">How do I get started?</p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <div className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center" style={{ backgroundColor: config.primary_color + "22" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: "13px", color: config.primary_color, fontVariationSettings: "'FILL' 1" }}>smart_toy</span>
-                </div>
-                <div className="bg-gray-100 p-3 rounded-2xl rounded-tl-none max-w-[85%]">
-                  <p className="text-xs text-gray-600 leading-relaxed">
-                    {config.what_we_do
-                      ? `${config.what_we_do.slice(0, 80)}${config.what_we_do.length > 80 ? "..." : ""}`
-                      : "I'm here to help! Ask me anything about our products and services."}
-                  </p>
-                </div>
+              <div className="flex items-center gap-3 relative">
+                <button aria-label="Menu" className="opacity-80 hover:opacity-100 flex p-0 bg-transparent border-0 text-white">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+                </button>
+                <button className="opacity-80 hover:opacity-100 flex p-0 bg-transparent border-0 text-white cursor-pointer" aria-label="Close">
+                  <svg fill="none" height="20" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="20"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg>
+                </button>
               </div>
             </div>
 
-            <div className="p-4 flex-1 flex flex-col justify-end bg-white relative">
-              {/* Preview Suggested Questions block */}
+            <div className="flex-1 p-4 flex flex-col gap-3 overflow-y-auto bg-white text-[14px]">
+              {(config.welcome_message || "Hi! How can I help you today?").split('\n').filter(m => m.trim().length > 0).map((msgLine, idx) => (
+                <div key={`welcome-${idx}`} className="bg-zinc-100 text-zinc-900 py-3 px-3 rounded-xl rounded-bl-sm max-w-[85%] self-start whitespace-pre-wrap shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                  {msgLine}
+                </div>
+              ))}
+
+              {/* Preview Suggested Questions block dynamically pushed to bottom */}
               {config.suggested_questions.filter(q => q.trim().length > 0).length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-3 justify-end mt-4">
+                <div className="flex flex-wrap gap-2 mt-auto pt-3 justify-end">
                   {config.suggested_questions.filter(q => q.trim().length > 0).map((q, idx) => (
-                    <div 
-                      key={idx} 
-                      className="px-3 py-1.5 text-[10px] font-bold rounded-xl border border-gray-200 text-gray-600 bg-white shadow-sm cursor-pointer hover:border-indigo-500 transition-colors text-right max-w-full truncate"
-                      style={{ color: config.primary_color, borderColor: config.primary_color + "60" }}
+                    <div
+                      key={idx}
+                      className="px-4 py-2 text-[14px] bg-white border border-zinc-200 text-zinc-900 rounded-full cursor-pointer hover:bg-gray-50 transition-colors"
                     >
                       {q}
                     </div>
                   ))}
                 </div>
               )}
+            </div>
 
-              <div className="flex flex-col gap-2 relative z-10 w-full pt-1">
-                <div className="flex items-center gap-2 bg-gray-100 px-4 py-2.5 rounded-full">
-                  <input className="bg-transparent outline-none flex-1 text-xs font-medium text-gray-400" disabled placeholder="Type a message..." type="text" />
-                  <span className="material-symbols-outlined" style={{ fontSize: "18px", color: config.primary_color, fontVariationSettings: "'FILL' 1" }}>send</span>
+            <div className="shrink-0 bg-white border-t border-gray-100 flex flex-col">
+              <div className="flex justify-center pb-2 pt-2">
+                <span className="flex items-center gap-1 text-[10px] text-gray-500 bg-gray-100 px-2 py-1 rounded-md font-medium">
+                  Powered by ChatBot AI
+                </span>
+              </div>
+              <div className="px-3 pb-3">
+                <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 py-2 px-2 pl-4 rounded-full">
+                  <input className="bg-transparent outline-none flex-1 text-[14px] text-zinc-900" disabled placeholder="Ask me anything..." type="text" />
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: config.primary_color }}>
+                    <span className="material-symbols-outlined text-white" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>send</span>
+                  </div>
                 </div>
-                <p className="text-[9px] text-center text-gray-300 mt-2">Powered by ChatBot AI</p>
               </div>
             </div>
           </div>

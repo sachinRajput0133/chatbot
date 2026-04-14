@@ -21,3 +21,11 @@ class ChatResponse(BaseModel):
     reply: str
     message_id: uuid.UUID
     conversation_id: uuid.UUID
+
+
+class ConversationSummary(BaseModel):
+    id: uuid.UUID
+    started_at: str
+    last_message_at: str
+    title: str
+    latest_message: str
