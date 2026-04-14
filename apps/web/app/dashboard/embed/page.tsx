@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const WIDGET_URL = process.env.NEXT_PUBLIC_WIDGET_URL || `${API_URL}/widget/widget.js`;
 
 const PLATFORMS = (botId: string) => [
   {
@@ -13,7 +14,7 @@ const PLATFORMS = (botId: string) => [
 <script>
   window.ChatbotConfig = { botId: '${botId}' };
 </script>
-<script async src="${API_URL}/widget.js"></script>`,
+<script async src="${WIDGET_URL}"></script>`,
     steps: [
       "Copy the code snippet above",
       "Paste it before the closing </body> tag on your website",
@@ -29,7 +30,7 @@ export function ChatbotWidget() {
   useEffect(() => {
     window.ChatbotConfig = { botId: '${botId}' };
     const script = document.createElement('script');
-    script.src = '${API_URL}/widget.js';
+    script.src = '${WIDGET_URL}';
     script.async = true;
     document.body.appendChild(script);
     return () => { document.body.removeChild(script); };
@@ -55,7 +56,7 @@ export function ChatbotWidget() {
   useEffect(() => {
     (window as any).ChatbotConfig = { botId: '${botId}' };
     const script = document.createElement('script');
-    script.src = '${API_URL}/widget.js';
+    script.src = '${WIDGET_URL}';
     script.async = true;
     document.body.appendChild(script);
     return () => { document.body.removeChild(script); };
@@ -80,7 +81,7 @@ let script;
 onMounted(() => {
   window.ChatbotConfig = { botId: '${botId}' };
   script = document.createElement('script');
-  script.src = '${API_URL}/widget.js';
+  script.src = '${WIDGET_URL}';
   script.async = true;
   document.body.appendChild(script);
 });
@@ -103,7 +104,7 @@ onUnmounted(() => { if (script) document.body.removeChild(script); });
 <script>
   window.ChatbotConfig = { botId: '${botId}' };
 </script>
-<script async src="${API_URL}/widget.js"></script>`,
+<script async src="${WIDGET_URL}"></script>`,
     steps: [
       "Go to Appearance → Theme Editor in WP admin",
       "Open footer.php and paste before </body>",
