@@ -34,7 +34,7 @@ export default function DashboardPage() {
       <header className="flex justify-between items-end mb-16">
         <div className="space-y-2">
           <h2 className="text-4xl font-black tracking-tight text-gray-900">
-            Welcome, {tenant.business_name}
+            Welcome, ssss {tenant.business_name}
           </h2>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold">

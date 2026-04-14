@@ -356,7 +356,7 @@ export default function KnowledgePage() {
             Build your <span className="text-orange-600 italic">Brain.</span>
           </h1>
           <p className="text-lg text-gray-500 font-medium leading-relaxed">
-            The Knowledge Base is the core of your AI's intelligence. Upload documents or add manual text to train your bot on your business data.
+            The Knowledge Base  ais the core of your AI's intelligence. Upload documents or add manual text to train your bot on your business data.
           </p>
         </div>
         <div className="flex gap-3 shrink-0">
