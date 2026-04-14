@@ -38,7 +38,7 @@ export function ChatbotWidget() {
 
         const script = document.createElement("script");
         script.id = "__cb_script";
-        script.src = `${API_URL}/widget.js`;
+        script.src = `${API_URL}/widget/widget.js`;
         document.body.appendChild(script);
       })
       .catch(() => {/* not logged in */});
