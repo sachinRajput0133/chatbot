@@ -136,7 +136,7 @@ async def chat(
     Public endpoint — called by widget.js on every message.
     CORS is open (any origin) — configured in main.py.
     """
-    reply, conversation_id = await handle_chat(
+    reply, message_id, conversation_id = await handle_chat(
         bot_id=bot_id,
         message=data.message,
         visitor_id=data.visitor_id,
@@ -145,4 +145,4 @@ async def chat(
         db=db,
         user_info=data.user_info,
     )
-    return ChatResponse(reply=reply, conversation_id=conversation_id)
+    return ChatResponse(reply=reply, message_id=message_id, conversation_id=conversation_id)

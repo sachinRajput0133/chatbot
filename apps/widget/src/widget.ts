@@ -107,6 +107,9 @@ declare global {
     localStorage.setItem(`cb_contact_${BOT_ID}`, JSON.stringify(info));
   }
   let collectedLeadInfo: { name: string; email: string; phone: string; address: string } | null = getStoredLeadInfo();
+  
+  const seenMessageIds = new Set<string>();
+  let currentTypingIndicator: HTMLElement | null = null;
 
   // ── Fetch widget config ────────────────────────────────────────────────────
   async function fetchConfig(): Promise<WidgetConfig> {
@@ -116,7 +119,7 @@ declare global {
   }
 
   // ── Send message ───────────────────────────────────────────────────────────
-  async function sendMessage(message: string): Promise<string> {
+  async function sendMessage(message: string): Promise<{ reply: string; messageId: string }> {
     // Build user_info by merging window.ChatbotConfig.user (website owner identity)
     // with collectedLeadInfo from the pre-chat form. Form data takes precedence since
     // it was explicitly entered by this visitor.
@@ -151,7 +154,7 @@ declare global {
     const data = await res.json();
     conversationId = data.conversation_id;
     setConversationId(conversationId!);
-    return data.reply;
+    return { reply: data.reply, messageId: data.message_id };
   }
 
   // ── Submit lead form ───────────────────────────────────────────────────────
@@ -453,6 +456,7 @@ declare global {
     }
 
     let ws: WebSocket | null = null;
+
     function connectWebSocket(convId: string) {
       if (ws) return;
       const protocol = API_URL.startsWith("https") ? "wss" : "ws";
@@ -461,8 +465,17 @@ declare global {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data.id && seenMessageIds.has(data.id)) return;
+          if (data.id) seenMessageIds.add(data.id);
+
           if (data.role === "agent") {
             appendMessage(data.content, "agent", messagesEl);
+          } else if (data.role === "assistant") {
+            if (currentTypingIndicator) {
+              currentTypingIndicator.remove();
+              currentTypingIndicator = null;
+            }
+            appendMessage(data.content, "bot", messagesEl);
           }
         } catch(e) {}
       };
@@ -480,17 +493,28 @@ declare global {
       sendBtn.disabled = true;
 
       appendMessage(text, "user", messagesEl);
-      const typing = appendTyping(messagesEl);
+      if (currentTypingIndicator) currentTypingIndicator.remove();
+      currentTypingIndicator = appendTyping(messagesEl);
 
       try {
-        const reply = await sendMessage(text);
+        const { reply, messageId } = await sendMessage(text);
         if (!ws && conversationId) connectWebSocket(conversationId);
-        typing.remove();
+        
+        if (messageId) seenMessageIds.add(messageId);
+
+        if (currentTypingIndicator) {
+          currentTypingIndicator.remove();
+          currentTypingIndicator = null;
+        }
+
         if (reply !== "__human_mode__") {
-          appendMessage(reply, "bot", messagesEl);
+          appendMessage(reply, "bot", messagesEl, messageId);
         }
       } catch (e: any) {
-        typing.remove();
+        if (currentTypingIndicator) {
+          currentTypingIndicator.remove();
+          currentTypingIndicator = null;
+        }
         appendMessage(e.message || "Something went wrong. Please try again.", "bot", messagesEl);
       } finally {
         sendBtn.disabled = false;
@@ -512,7 +536,15 @@ declare global {
     });
   }
 
-  function appendMessage(text: string, role: "user" | "bot" | "agent", container: HTMLElement): HTMLElement {
+  function appendMessage(text: string, role: "user" | "bot" | "agent", container: HTMLElement, messageId?: string): HTMLElement {
+    if (messageId && seenMessageIds.has(messageId)) {
+        // Find existing message with this ID if we want to replace, 
+        // but for now we just return the existing one or null.
+        // Our check at the call site already handles this mostly, but safety first.
+        return document.createElement("div"); // Dummy
+    }
+    if (messageId) seenMessageIds.add(messageId);
+
     const div = document.createElement("div");
     div.className = `cb-msg cb-${role}`;
     div.textContent = text;

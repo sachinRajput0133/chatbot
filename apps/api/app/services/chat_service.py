@@ -316,24 +316,36 @@ async def handle_chat(
         if extracted.get("phone") and not conv.visitor_phone:
             conv.visitor_phone = extracted["phone"]
 
+    # ── User message ──
+    user_msg_id = uuid.uuid4()
+    db.add(WebMessage(id=user_msg_id, conversation_id=conv.id, role=MessageRole.user, content=message))
+    await append_conversation_message(str(bot_id), visitor_id, "user", message)
+    
+    # Broadcast User message IMMEDIATELY so agents see it while AI is thinking
+    from app.core.redis import publish_to_conversation, publish_to_tenant
+    
+    user_payload = {
+        "id": str(user_msg_id), 
+        "role": "user", 
+        "content": message, 
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await publish_to_conversation(str(conv.id), user_payload)
+    await publish_to_tenant(str(tenant.id), {
+        "type": "new_message", 
+        "conversation_id": str(conv.id), 
+        "message": user_payload
+    })
+
+    # Commit the user message so it's in DB even if AI call fails
+    await db.commit()
+
     # ── Human Agent Takeover ──
-    # If a human is talking, save the user message and skip the AI completely.
+    # If a human is talking, skip the AI completely.
     if conv.mode == "human":
-        db.add(WebMessage(conversation_id=conv.id, role=MessageRole.user, content=message))
-        await db.commit()
-        await append_conversation_message(str(bot_id), visitor_id, "user", message)
-        
-        # Publish the new user message to the websocket channel so if the visitor has multiple tabs
-        # or if we ever add dashboard WS, it broadcasts.
-        import uuid as _uuid
-        from app.core.redis import publish_to_conversation, publish_to_tenant
-        msg_payload = {"id": str(_uuid.uuid4()), "role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
-        await publish_to_conversation(str(conv.id), msg_payload)
-        await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": msg_payload})
         return "__human_mode__", conv.id
 
-
-    # ── RAG Retrieval ──
+    # ── AI Reply ──
     history = await get_conversation_history(str(bot_id), visitor_id)
     search_query = await _rephrase_query(list(history), message)
     
@@ -346,26 +358,25 @@ async def handle_chat(
 
     reply, tokens_used = await _call_ai(messages, full_system)
 
-    db.add(WebMessage(conversation_id=conv.id, role=MessageRole.user, content=message))
-    db.add(WebMessage(conversation_id=conv.id, role=MessageRole.assistant, content=reply, tokens_used=tokens_used))
+    ai_msg_id = uuid.uuid4()
+    db.add(WebMessage(id=ai_msg_id, conversation_id=conv.id, role=MessageRole.assistant, content=reply, tokens_used=tokens_used))
     tenant.message_count_month += 1
     await db.commit()
 
-    await append_conversation_message(str(bot_id), visitor_id, "user", message)
     await append_conversation_message(str(bot_id), visitor_id, "assistant", reply)
 
-    # Broadcast updates to dashboard and widget
-    from app.core.redis import publish_to_conversation, publish_to_tenant
-    
-    # User message
-    import uuid as _uuid
-    user_payload = {"id": str(_uuid.uuid4()), "role": "user", "content": message, "created_at": datetime.now(timezone.utc).isoformat()}
-    await publish_to_conversation(str(conv.id), user_payload)
-    await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": user_payload})
-
-    # AI reply
-    ai_payload = {"id": str(_uuid.uuid4()), "role": "assistant", "content": reply, "created_at": datetime.now(timezone.utc).isoformat()}
+    # Broadcast AI reply
+    ai_payload = {
+        "id": str(ai_msg_id), 
+        "role": "assistant", 
+        "content": reply, 
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
     await publish_to_conversation(str(conv.id), ai_payload)
-    await publish_to_tenant(str(tenant.id), {"type": "new_message", "conversation_id": str(conv.id), "message": ai_payload})
+    await publish_to_tenant(str(tenant.id), {
+        "type": "new_message", 
+        "conversation_id": str(conv.id), 
+        "message": ai_payload
+    })
 
-    return reply, conv.id
+    return reply, ai_msg_id, conv.id
