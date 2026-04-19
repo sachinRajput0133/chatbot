@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = ""
     FROM_EMAIL: str = "noreply@chatbot.com"
 
+    # Slack (optional — used for AI-failure escalation alerts)
+    SLACK_WEBHOOK_URL: str = ""
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
 

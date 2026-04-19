@@ -3,6 +3,8 @@ RAG-powered chat service.
 Provider priority: groq → anthropic → openai → gemini → grok
 Embeddings: OpenAI if key set, otherwise falls back to keyword search.
 """
+import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -11,12 +13,19 @@ from sqlalchemy import select, text
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.core.redis import get_conversation_history, append_conversation_message
+from app.core.redis import get_conversation_history, append_conversation_message, publish_to_conversation, publish_to_tenant
 from app.models.tenant import Tenant, Plan
 from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.models.widget import WidgetConfig
 from app.schemas.chat import VisitorInfo
-from app.services import lead_capture_service
+from app.services import email_service, lead_capture_service
+
+logger = logging.getLogger(__name__)
+
+AI_FAILURE_FALLBACK = (
+    "Our AI assistant is temporarily unavailable. A human team member will "
+    "follow up with you shortly — thank you for your patience!"
+)
 
 PLAN_LIMITS = {
     Plan.free: 100,
@@ -356,7 +365,14 @@ async def handle_chat(
     context_text = "\n\n---\n\n".join(context_chunks) if context_chunks else "No relevant context found."
     full_system = f"{system_prompt}\n\n<context>\n{context_text}\n</context>"
 
-    reply, tokens_used = await _call_ai(messages, full_system)
+    try:
+        reply, tokens_used = await _call_ai(messages, full_system)
+    except Exception as exc:
+        logger.exception(f"[AI Escalation] Provider failed for conversation {conv.id}: {exc}")
+        return await _escalate_to_human(
+            tenant=tenant, conv=conv, visitor_message=message,
+            error_detail=f"{type(exc).__name__}: {exc}"[:300], db=db,
+        )
 
     ai_msg_id = uuid.uuid4()
     db.add(WebMessage(id=ai_msg_id, conversation_id=conv.id, role=MessageRole.assistant, content=reply, tokens_used=tokens_used))
@@ -367,16 +383,81 @@ async def handle_chat(
 
     # Broadcast AI reply
     ai_payload = {
-        "id": str(ai_msg_id), 
-        "role": "assistant", 
-        "content": reply, 
+        "id": str(ai_msg_id),
+        "role": "assistant",
+        "content": reply,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await publish_to_conversation(str(conv.id), ai_payload)
     await publish_to_tenant(str(tenant.id), {
-        "type": "new_message", 
-        "conversation_id": str(conv.id), 
+        "type": "new_message",
+        "conversation_id": str(conv.id),
         "message": ai_payload
     })
 
     return reply, ai_msg_id, conv.id
+
+
+async def _escalate_to_human(
+    *, tenant: Tenant, conv: WebConversation, visitor_message: str,
+    error_detail: str, db: AsyncSession,
+) -> tuple[str, uuid.UUID, uuid.UUID]:
+    """
+    Called when the AI provider fails. Flips the conversation to human mode,
+    stores a fallback reply, broadcasts to the dashboard, and fires email + Slack
+    alerts to the tenant. The visitor sees a graceful "we'll follow up" message.
+    """
+    conv.mode = "human"
+
+    fallback_msg_id = uuid.uuid4()
+    db.add(WebMessage(
+        id=fallback_msg_id, conversation_id=conv.id,
+        role=MessageRole.assistant, content=AI_FAILURE_FALLBACK, tokens_used=0,
+    ))
+    await db.commit()
+
+    await append_conversation_message(str(tenant.bot_id), conv.visitor_id, "assistant", AI_FAILURE_FALLBACK)
+
+    fallback_payload = {
+        "id": str(fallback_msg_id),
+        "role": "assistant",
+        "content": AI_FAILURE_FALLBACK,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await publish_to_conversation(str(conv.id), fallback_payload)
+    await publish_to_tenant(str(tenant.id), {
+        "type": "ai_escalation",
+        "conversation_id": str(conv.id),
+        "message": fallback_payload,
+        "reason": error_detail,
+    })
+
+    # Fire-and-forget: notify the tenant so an agent can take over.
+    # Run sync Resend + Slack calls in a worker thread so they don't block the reply.
+    async def _notify() -> None:
+        try:
+            await asyncio.to_thread(
+                email_service.send_ai_escalation,
+                to=tenant.email,
+                business_name=tenant.business_name,
+                conversation_id=str(conv.id),
+                visitor_name=conv.visitor_name,
+                visitor_email=conv.visitor_email,
+                visitor_message=visitor_message,
+                error_detail=error_detail,
+            )
+            await asyncio.to_thread(
+                email_service.notify_slack_escalation,
+                business_name=tenant.business_name,
+                conversation_id=str(conv.id),
+                visitor_name=conv.visitor_name,
+                visitor_email=conv.visitor_email,
+                visitor_message=visitor_message,
+                error_detail=error_detail,
+            )
+        except Exception as e:
+            logger.warning(f"[AI Escalation] Notification failed: {e}")
+
+    asyncio.create_task(_notify())
+
+    return AI_FAILURE_FALLBACK, fallback_msg_id, conv.id

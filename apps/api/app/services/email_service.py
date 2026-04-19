@@ -3,6 +3,7 @@ Email service using Resend.
 All sends are fire-and-forget — errors are logged but never surface to the user.
 """
 import logging
+import httpx
 import resend
 from app.core.config import settings
 
@@ -150,6 +151,117 @@ def send_plan_upgraded(*, to: str, business_name: str, plan: str, messages_limit
 </p>
 """
     _send(to=to, subject=f"Your ChatBot AI plan upgraded to {plan_label} ✅", html=_base(content))
+
+
+def send_ai_escalation(
+    *,
+    to: str,
+    business_name: str,
+    conversation_id: str,
+    visitor_name: str | None,
+    visitor_email: str | None,
+    visitor_message: str,
+    error_detail: str,
+) -> None:
+    """
+    Sent to the tenant when the AI provider fails on a live visitor chat.
+    The conversation has been auto-flipped to human mode — an agent must respond.
+    """
+    visitor_label = visitor_name or visitor_email or "A visitor"
+    contact_line = ""
+    if visitor_email:
+        contact_line = f"<p><strong>Visitor email:</strong> {visitor_email}</p>"
+
+    dashboard_link = f"{FRONTEND_URL}/dashboard/conversations/{conversation_id}"
+    safe_msg = (visitor_message or "").replace("<", "&lt;").replace(">", "&gt;")[:500]
+
+    content = f"""
+<h2 style="color:#b91c1c;">⚠️ AI unavailable — human needed</h2>
+<p>Your chatbot for <strong>{business_name}</strong> couldn't generate a reply and the conversation has been switched to <strong>human mode</strong>. Please respond from the dashboard.</p>
+
+<div style="background:#fef2f2;border-left:4px solid #b91c1c;padding:14px 18px;margin:20px 0;border-radius:6px;">
+  <p style="margin:0 0 6px;color:#991b1b;font-size:13px;font-weight:600;">What happened</p>
+  <p style="margin:0;color:#7f1d1d;font-size:13px;font-family:monospace;">{error_detail}</p>
+</div>
+
+<p><strong>{visitor_label}</strong> asked:</p>
+<blockquote style="border-left:3px solid #e5e7eb;padding:8px 14px;margin:12px 0;color:#4b5563;background:#f9fafb;border-radius:4px;">
+  {safe_msg}
+</blockquote>
+{contact_line}
+
+<a href="{dashboard_link}" class="btn">Open conversation →</a>
+
+<p style="color:#6b7280;font-size:13px;margin-top:20px;">
+  The visitor received: <em>"Our AI assistant is temporarily unavailable. A human team member will follow up with you shortly."</em>
+</p>
+"""
+    _send(
+        to=to,
+        subject=f"⚠️ Action needed — AI couldn't reply to a visitor",
+        html=_base(content),
+    )
+
+
+def notify_slack_escalation(
+    *,
+    business_name: str,
+    conversation_id: str,
+    visitor_name: str | None,
+    visitor_email: str | None,
+    visitor_message: str,
+    error_detail: str,
+) -> None:
+    """Post an AI-failure alert to the configured Slack incoming webhook (if any)."""
+    url = settings.SLACK_WEBHOOK_URL
+    if not url:
+        return
+
+    visitor_label = visitor_name or visitor_email or "A visitor"
+    dashboard_link = f"{FRONTEND_URL}/dashboard/conversations/{conversation_id}"
+    truncated = (visitor_message or "")[:400]
+
+    payload = {
+        "text": f":warning: AI failed for *{business_name}* — human response needed",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "⚠️ AI chatbot needs human takeover"},
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Tenant*\n{business_name}"},
+                    {"type": "mrkdwn", "text": f"*Visitor*\n{visitor_label}"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Visitor message:*\n>{truncated}"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Error:*\n`{error_detail}`"},
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open conversation"},
+                        "url": dashboard_link,
+                        "style": "primary",
+                    }
+                ],
+            },
+        ],
+    }
+    try:
+        with httpx.Client(timeout=5) as client:
+            client.post(url, json=payload)
+        logger.info(f"[Slack] Sent escalation for conversation {conversation_id}")
+    except Exception as e:
+        logger.warning(f"[Slack] Failed to post escalation: {e}")
 
 
 def send_plan_cancelled(*, to: str, business_name: str) -> None:
