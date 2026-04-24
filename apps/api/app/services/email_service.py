@@ -12,20 +12,23 @@ logger = logging.getLogger(__name__)
 FRONTEND_URL = settings.FRONTEND_URL
 
 
-def _send(*, to: str, subject: str, html: str) -> None:
+def _send(*, to: str, subject: str, html: str, cc: list[str] | None = None) -> None:
     """Send an email. Silently logs on failure so it never breaks the caller."""
     if not settings.RESEND_API_KEY or settings.RESEND_API_KEY.startswith("re_..."):
         logger.info(f"[Email] RESEND_API_KEY not set — skipping email to {to}: {subject}")
         return
     try:
         resend.api_key = settings.RESEND_API_KEY
-        resend.Emails.send({
+        payload: dict = {
             "from": settings.FROM_EMAIL,
             "to": [to],
             "subject": subject,
             "html": html,
-        })
-        logger.info(f"[Email] Sent '{subject}' to {to}")
+        }
+        if cc:
+            payload["cc"] = cc
+        resend.Emails.send(payload)
+        logger.info(f"[Email] Sent '{subject}' to {to}" + (f" (cc={len(cc)})" if cc else ""))
     except Exception as e:
         logger.warning(f"[Email] Failed to send '{subject}' to {to}: {e}")
 
@@ -162,6 +165,7 @@ def send_ai_escalation(
     visitor_email: str | None,
     visitor_message: str,
     error_detail: str,
+    cc: list[str] | None = None,
 ) -> None:
     """
     Sent to the tenant when the AI provider fails on a live visitor chat.
@@ -200,6 +204,7 @@ def send_ai_escalation(
         to=to,
         subject=f"⚠️ Action needed — AI couldn't reply to a visitor",
         html=_base(content),
+        cc=cc,
     )
 
 
@@ -279,3 +284,21 @@ def send_plan_cancelled(*, to: str, business_name: str) -> None:
 </p>
 """
     _send(to=to, subject="ChatBot AI subscription cancelled", html=_base(content))
+
+
+def send_notification_test(*, to: str, business_name: str, cc: list[str] | None = None) -> None:
+    """Sample escalation-style email so tenants can verify their delivery setup."""
+    content = f"""
+<h2>✅ Notification test</h2>
+<p>Hi {business_name}, this is a test email from <strong>ChatBot AI</strong>. If you're
+seeing this, your AI-escalation alerts will land in this inbox when your chatbot
+needs human help.</p>
+
+<p style="color:#6b7280;font-size:14px;">No action required — this is just a delivery check.</p>
+"""
+    _send(
+        to=to,
+        subject="ChatBot AI — notification test",
+        html=_base(content),
+        cc=cc,
+    )

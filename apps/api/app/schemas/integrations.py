@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, EmailStr
 
 
 SLACK_WEBHOOK_PREFIX = "https://hooks.slack.com/services/"
@@ -32,3 +32,47 @@ class TestSlackRequest(BaseModel):
 class TestSlackResponse(BaseModel):
     ok: bool
     detail: str | None = None
+
+
+class TestEmailResponse(BaseModel):
+    ok: bool
+    sent_to: str
+    cc_count: int
+    detail: str | None = None
+
+
+MAX_NOTIFICATION_EMAILS = 5
+
+
+class NotificationEmailsConfig(BaseModel):
+    """
+    Read view. `primary_email` is the per-tenant override for the `to:` recipient
+    (null means "use `account_email`"). `cc_emails` are extra addresses CC'd
+    alongside. `account_email` is read-only; the UI surfaces it so the user
+    knows the fallback.
+    """
+    primary_email: EmailStr | None = None
+    cc_emails: list[EmailStr] = Field(default_factory=list, max_length=MAX_NOTIFICATION_EMAILS)
+    account_email: EmailStr
+
+
+class SetNotificationEmailsRequest(BaseModel):
+    primary_email: EmailStr | None = None
+    cc_emails: list[EmailStr] = Field(default_factory=list, max_length=MAX_NOTIFICATION_EMAILS)
+
+    @field_validator("cc_emails")
+    @classmethod
+    def _dedupe_lowercase(cls, v: list[str]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for e in v:
+            key = e.lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(key)
+        return out
+
+    @field_validator("primary_email")
+    @classmethod
+    def _lowercase_primary(cls, v: str | None) -> str | None:
+        return v.lower() if v else None

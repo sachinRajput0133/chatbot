@@ -281,7 +281,7 @@ async def handle_chat(
     conversation_id: uuid.UUID | None, page_url: str | None,
     db: AsyncSession,
     user_info: VisitorInfo | None = None,
-) -> tuple[str, uuid.UUID]:
+) -> tuple[str, uuid.UUID, uuid.UUID]:
 
     result = await db.execute(select(Tenant).where(Tenant.bot_id == bot_id))
     tenant = result.scalar_one_or_none()
@@ -350,9 +350,11 @@ async def handle_chat(
     await db.commit()
 
     # ── Human Agent Takeover ──
-    # If a human is talking, skip the AI completely.
+    # If a human is talking, skip the AI completely. The widget treats the
+    # "__human_mode__" sentinel as "don't render a bot reply" but still needs
+    # a valid message_id + conversation_id per ChatResponse schema.
     if conv.mode == "human":
-        return "__human_mode__", conv.id
+        return "__human_mode__", user_msg_id, conv.id
 
     # ── AI Reply ──
     history = await get_conversation_history(str(bot_id), visitor_id)
@@ -436,15 +438,21 @@ async def _escalate_to_human(
     # Run sync Resend + Slack calls in a worker thread so they don't block the reply.
     async def _notify() -> None:
         try:
+            primary_to = tenant.primary_notification_email or tenant.email
+            cc_list = [
+                addr for addr in (tenant.notification_emails or [])
+                if addr.lower() != primary_to.lower()
+            ]
             await asyncio.to_thread(
                 email_service.send_ai_escalation,
-                to=tenant.email,
+                to=primary_to,
                 business_name=tenant.business_name,
                 conversation_id=str(conv.id),
                 visitor_name=conv.visitor_name,
                 visitor_email=conv.visitor_email,
                 visitor_message=visitor_message,
                 error_detail=error_detail,
+                cc=cc_list or None,
             )
 
             # Decrypt the tenant's Slack webhook if configured. Corrupted/unreadable

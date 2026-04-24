@@ -20,7 +20,11 @@ from app.schemas.integrations import (
     SetSlackWebhookRequest,
     TestSlackRequest,
     TestSlackResponse,
+    NotificationEmailsConfig,
+    SetNotificationEmailsRequest,
+    TestEmailResponse,
 )
+from app.services import email_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
@@ -137,3 +141,81 @@ async def test_slack_webhook(
         return TestSlackResponse(ok=True)
     except httpx.HTTPError as e:
         return TestSlackResponse(ok=False, detail=f"Network error: {e}")
+
+
+@router.get("/email-notifications", response_model=NotificationEmailsConfig)
+async def get_notification_emails(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    return NotificationEmailsConfig(
+        primary_email=tenant.primary_notification_email,
+        cc_emails=tenant.notification_emails or [],
+        account_email=tenant.email,
+    )
+
+
+@router.put("/email-notifications", response_model=NotificationEmailsConfig)
+async def set_notification_emails(
+    data: SetNotificationEmailsRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    tenant.primary_notification_email = data.primary_email
+    tenant.notification_emails = data.cc_emails or None
+    await db.commit()
+    await db.refresh(tenant)
+    return NotificationEmailsConfig(
+        primary_email=tenant.primary_notification_email,
+        cc_emails=tenant.notification_emails or [],
+        account_email=tenant.email,
+    )
+
+
+@router.post("/email-notifications/test", response_model=TestEmailResponse)
+@limiter.limit("5/minute")
+async def test_notification_email(
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send a sample escalation-style email to the currently configured primary + CCs."""
+    tenant = await _get_tenant_for_user(user_id, db)
+
+    primary = tenant.primary_notification_email or tenant.email
+    cc_list = [
+        addr for addr in (tenant.notification_emails or [])
+        if addr.lower() != primary.lower()
+    ]
+
+    try:
+        import asyncio
+        await asyncio.to_thread(
+            email_service.send_notification_test,
+            to=primary,
+            business_name=tenant.business_name,
+            cc=cc_list or None,
+        )
+    except Exception as e:
+        logger.warning(f"[Integrations] Test email failed for tenant {tenant.id}: {e}")
+        return TestEmailResponse(
+            ok=False,
+            sent_to=primary,
+            cc_count=len(cc_list),
+            detail=f"Failed to send: {e}",
+        )
+
+    # send_notification_test swallows Resend errors (fire-and-forget). If RESEND_API_KEY is
+    # unset it silently no-ops — surface that so the UI doesn't pretend everything worked.
+    from app.core.config import settings
+    if not settings.RESEND_API_KEY or settings.RESEND_API_KEY.startswith("re_..."):
+        return TestEmailResponse(
+            ok=False,
+            sent_to=primary,
+            cc_count=len(cc_list),
+            detail="Email is not configured on the server yet (RESEND_API_KEY missing). Contact the platform admin.",
+        )
+
+    return TestEmailResponse(ok=True, sent_to=primary, cc_count=len(cc_list))

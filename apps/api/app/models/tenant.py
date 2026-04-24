@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Boolean, Integer, DateTime, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 import enum
 from app.core.database import Base
 
@@ -37,6 +37,11 @@ class Tenant(Base):
     # Per-tenant Slack incoming-webhook URL, Fernet-encrypted at rest.
     # Null = tenant has not configured Slack.
     slack_webhook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Optional override for the primary recipient of escalation alerts.
+    # Falls back to `email` (the account-owner address) when null.
+    primary_notification_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Up to 5 additional email addresses that get CC'd on escalation alerts.
+    notification_emails: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

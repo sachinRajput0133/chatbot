@@ -10,6 +10,24 @@ export interface TestSlackResponse {
   detail: string | null;
 }
 
+export interface NotificationEmailsConfig {
+  primary_email: string | null;
+  cc_emails: string[];
+  account_email: string;
+}
+
+export interface SetNotificationEmailsInput {
+  primary_email: string | null;
+  cc_emails: string[];
+}
+
+export interface TestEmailResponse {
+  ok: boolean;
+  sent_to: string;
+  cc_count: number;
+  detail: string | null;
+}
+
 export const integrationsApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     slackStatus: build.query<SlackIntegrationStatus, void>({
@@ -27,6 +45,17 @@ export const integrationsApi = baseApi.injectEndpoints({
     testSlackWebhook: build.mutation<TestSlackResponse, { webhook_url?: string }>({
       query: (body) => ({ url: "/api/integrations/slack/test", method: "POST", body }),
     }),
+    notificationEmails: build.query<NotificationEmailsConfig, void>({
+      query: () => "/api/integrations/email-notifications",
+      providesTags: ["Integrations"],
+    }),
+    setNotificationEmails: build.mutation<NotificationEmailsConfig, SetNotificationEmailsInput>({
+      query: (body) => ({ url: "/api/integrations/email-notifications", method: "PUT", body }),
+      invalidatesTags: ["Integrations"],
+    }),
+    testNotificationEmail: build.mutation<TestEmailResponse, void>({
+      query: () => ({ url: "/api/integrations/email-notifications/test", method: "POST" }),
+    }),
   }),
 });
 
@@ -35,4 +64,7 @@ export const {
   useSetSlackWebhookMutation,
   useDeleteSlackWebhookMutation,
   useTestSlackWebhookMutation,
+  useNotificationEmailsQuery,
+  useSetNotificationEmailsMutation,
+  useTestNotificationEmailMutation,
 } = integrationsApi;
