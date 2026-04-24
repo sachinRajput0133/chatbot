@@ -11,6 +11,6 @@ export const baseApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ["Knowledge", "WidgetConfig", "Conversations", "Messages", "Analytics", "Billing", "Profile"],
+  tagTypes: ["Knowledge", "WidgetConfig", "Conversations", "Messages", "Analytics", "Billing", "Profile", "Integrations"],
   endpoints: () => ({}),
 });

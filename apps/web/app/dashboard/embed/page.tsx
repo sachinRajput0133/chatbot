@@ -142,7 +142,23 @@ export default function EmbedPage() {
   const active = platforms.find((p) => p.id === activeTab)!;
 
   function copy() {
-    navigator.clipboard.writeText(active.code);
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(active.code);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = active.code;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+    } catch (e) {
+      // silent fail
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }

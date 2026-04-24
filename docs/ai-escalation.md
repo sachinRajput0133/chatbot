@@ -27,16 +27,26 @@ as of writing this doc.** Whoever picks this up next needs to:
   `[Email] RESEND_API_KEY not set — skipping email to ...`). The rest of the
   escalation flow still works.
 
-### 2. Slack incoming webhook (optional, for Slack alerts)
+### 2. Slack incoming webhook (per-tenant, configured in the dashboard)
 
-- In Slack, go to your workspace → Apps → search "Incoming Webhooks" → Add
-- Pick the channel where alerts should land (e.g. `#support-alerts`)
-- Copy the webhook URL
-- Paste it into `.env`:
-  ```env
-  SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T.../B.../xxx
-  ```
-- If empty, Slack step is silently skipped — email still fires.
+Slack is now **per-tenant**, not global. Each tenant configures their own
+webhook under **Dashboard → Integrations → Slack** (stored Fernet-encrypted
+in the `tenants.slack_webhook_url` column). If a tenant hasn't configured one,
+the Slack step is silently skipped — the email still fires.
+
+The only API-side requirement is the encryption key:
+
+```env
+# Generate with:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+ENCRYPTION_KEY=<base64-fernet-key>
+```
+
+Rotating `ENCRYPTION_KEY` invalidates stored webhooks — tenants will need to
+re-save them from the dashboard.
+
+The legacy global `SLACK_WEBHOOK_URL` env var is no longer read at runtime
+(the `Settings` field is kept so old deployments don't error on load).
 
 Restart the API after editing `.env`:
 
@@ -106,13 +116,20 @@ HTTP response isn't delayed by email or Slack latency.
 
 | File | Change |
 |------|--------|
-| `apps/api/app/core/config.py` | Added `SLACK_WEBHOOK_URL: str = ""` setting |
-| `apps/api/app/services/email_service.py` | Added `send_ai_escalation()` template + `notify_slack_escalation()` |
-| `apps/api/app/services/chat_service.py` | Wrapped `_call_ai()` call in try/except, added `_escalate_to_human()` helper, defined `AI_FAILURE_FALLBACK` constant |
-| `.env` / `.env.example` | Documented `SLACK_WEBHOOK_URL` variable |
+| `apps/api/app/core/config.py` | Added `ENCRYPTION_KEY` (Fernet key for tenant secrets); legacy `SLACK_WEBHOOK_URL` kept but unused |
+| `apps/api/app/core/encryption.py` | Fernet `encrypt_secret` / `decrypt_secret` helpers |
+| `apps/api/app/models/tenant.py` | Added `slack_webhook_url` (encrypted, nullable) column |
+| `apps/api/app/services/email_service.py` | `notify_slack_escalation()` now takes an explicit `webhook_url` argument |
+| `apps/api/app/services/chat_service.py` | `_escalate_to_human()` decrypts the tenant's webhook before notifying |
+| `apps/api/app/routers/integrations.py` | GET/PUT/DELETE `/api/integrations/slack` + rate-limited test endpoint |
+| `apps/api/app/schemas/integrations.py` | Pydantic models for the integrations endpoints |
+| `apps/web/app/dashboard/integrations/page.tsx` | Dashboard UI to save / test / disconnect Slack |
+| `apps/web/lib/api/integrationsApi.ts` | RTK Query slice for the integrations endpoints |
 
-No new DB columns or migrations — reused the existing `WebConversation.mode`
-column (which already supported `'ai'` / `'human'`).
+No new DB columns or migrations were needed for the conversation flow — it
+reused the existing `WebConversation.mode` column (which already supported
+`'ai'` / `'human'`). The per-tenant Slack work added one column
+(`tenants.slack_webhook_url`) via migration `i4j5k6l7m8n9`.
 
 ---
 

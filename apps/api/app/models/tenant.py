@@ -34,6 +34,9 @@ class Tenant(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Razorpay (India)
     razorpay_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Per-tenant Slack incoming-webhook URL, Fernet-encrypted at rest.
+    # Null = tenant has not configured Slack.
+    slack_webhook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

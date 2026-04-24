@@ -446,8 +446,22 @@ async def _escalate_to_human(
                 visitor_message=visitor_message,
                 error_detail=error_detail,
             )
+
+            # Decrypt the tenant's Slack webhook if configured. Corrupted/unreadable
+            # ciphertext is treated as "not configured" rather than crashing the alert.
+            slack_url: str | None = None
+            if tenant.slack_webhook_url:
+                try:
+                    from app.core.encryption import decrypt_secret, InvalidToken
+                    slack_url = decrypt_secret(tenant.slack_webhook_url)
+                except InvalidToken:
+                    logger.warning(
+                        f"[AI Escalation] Tenant {tenant.id} has an unreadable slack_webhook_url — skipping Slack alert"
+                    )
+
             await asyncio.to_thread(
                 email_service.notify_slack_escalation,
+                webhook_url=slack_url,
                 business_name=tenant.business_name,
                 conversation_id=str(conv.id),
                 visitor_name=conv.visitor_name,

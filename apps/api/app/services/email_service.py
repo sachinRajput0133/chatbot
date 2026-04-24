@@ -205,6 +205,7 @@ def send_ai_escalation(
 
 def notify_slack_escalation(
     *,
+    webhook_url: str | None,
     business_name: str,
     conversation_id: str,
     visitor_name: str | None,
@@ -212,9 +213,8 @@ def notify_slack_escalation(
     visitor_message: str,
     error_detail: str,
 ) -> None:
-    """Post an AI-failure alert to the configured Slack incoming webhook (if any)."""
-    url = settings.SLACK_WEBHOOK_URL
-    if not url:
+    """Post an AI-failure alert to a tenant's Slack incoming webhook (if one is configured)."""
+    if not webhook_url:
         return
 
     visitor_label = visitor_name or visitor_email or "A visitor"
@@ -258,7 +258,7 @@ def notify_slack_escalation(
     }
     try:
         with httpx.Client(timeout=5) as client:
-            client.post(url, json=payload)
+            client.post(webhook_url, json=payload)
         logger.info(f"[Slack] Sent escalation for conversation {conversation_id}")
     except Exception as e:
         logger.warning(f"[Slack] Failed to post escalation: {e}")
