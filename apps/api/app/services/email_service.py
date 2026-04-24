@@ -3,6 +3,7 @@ Email service using Resend.
 All sends are fire-and-forget — errors are logged but never surface to the user.
 """
 import logging
+import httpx
 import resend
 from app.core.config import settings
 
@@ -11,20 +12,23 @@ logger = logging.getLogger(__name__)
 FRONTEND_URL = settings.FRONTEND_URL
 
 
-def _send(*, to: str, subject: str, html: str) -> None:
+def _send(*, to: str, subject: str, html: str, cc: list[str] | None = None) -> None:
     """Send an email. Silently logs on failure so it never breaks the caller."""
     if not settings.RESEND_API_KEY or settings.RESEND_API_KEY.startswith("re_..."):
         logger.info(f"[Email] RESEND_API_KEY not set — skipping email to {to}: {subject}")
         return
     try:
         resend.api_key = settings.RESEND_API_KEY
-        resend.Emails.send({
+        payload: dict = {
             "from": settings.FROM_EMAIL,
             "to": [to],
             "subject": subject,
             "html": html,
-        })
-        logger.info(f"[Email] Sent '{subject}' to {to}")
+        }
+        if cc:
+            payload["cc"] = cc
+        resend.Emails.send(payload)
+        logger.info(f"[Email] Sent '{subject}' to {to}" + (f" (cc={len(cc)})" if cc else ""))
     except Exception as e:
         logger.warning(f"[Email] Failed to send '{subject}' to {to}: {e}")
 
@@ -152,6 +156,119 @@ def send_plan_upgraded(*, to: str, business_name: str, plan: str, messages_limit
     _send(to=to, subject=f"Your ChatBot AI plan upgraded to {plan_label} ✅", html=_base(content))
 
 
+def send_ai_escalation(
+    *,
+    to: str,
+    business_name: str,
+    conversation_id: str,
+    visitor_name: str | None,
+    visitor_email: str | None,
+    visitor_message: str,
+    error_detail: str,
+    cc: list[str] | None = None,
+) -> None:
+    """
+    Sent to the tenant when the AI provider fails on a live visitor chat.
+    The conversation has been auto-flipped to human mode — an agent must respond.
+    """
+    visitor_label = visitor_name or visitor_email or "A visitor"
+    contact_line = ""
+    if visitor_email:
+        contact_line = f"<p><strong>Visitor email:</strong> {visitor_email}</p>"
+
+    dashboard_link = f"{FRONTEND_URL}/dashboard/conversations/{conversation_id}"
+    safe_msg = (visitor_message or "").replace("<", "&lt;").replace(">", "&gt;")[:500]
+
+    content = f"""
+<h2 style="color:#b91c1c;">⚠️ AI unavailable — human needed</h2>
+<p>Your chatbot for <strong>{business_name}</strong> couldn't generate a reply and the conversation has been switched to <strong>human mode</strong>. Please respond from the dashboard.</p>
+
+<div style="background:#fef2f2;border-left:4px solid #b91c1c;padding:14px 18px;margin:20px 0;border-radius:6px;">
+  <p style="margin:0 0 6px;color:#991b1b;font-size:13px;font-weight:600;">What happened</p>
+  <p style="margin:0;color:#7f1d1d;font-size:13px;font-family:monospace;">{error_detail}</p>
+</div>
+
+<p><strong>{visitor_label}</strong> asked:</p>
+<blockquote style="border-left:3px solid #e5e7eb;padding:8px 14px;margin:12px 0;color:#4b5563;background:#f9fafb;border-radius:4px;">
+  {safe_msg}
+</blockquote>
+{contact_line}
+
+<a href="{dashboard_link}" class="btn">Open conversation →</a>
+
+<p style="color:#6b7280;font-size:13px;margin-top:20px;">
+  The visitor received: <em>"Our AI assistant is temporarily unavailable. A human team member will follow up with you shortly."</em>
+</p>
+"""
+    _send(
+        to=to,
+        subject=f"⚠️ Action needed — AI couldn't reply to a visitor",
+        html=_base(content),
+        cc=cc,
+    )
+
+
+def notify_slack_escalation(
+    *,
+    webhook_url: str | None,
+    business_name: str,
+    conversation_id: str,
+    visitor_name: str | None,
+    visitor_email: str | None,
+    visitor_message: str,
+    error_detail: str,
+) -> None:
+    """Post an AI-failure alert to a tenant's Slack incoming webhook (if one is configured)."""
+    if not webhook_url:
+        return
+
+    visitor_label = visitor_name or visitor_email or "A visitor"
+    dashboard_link = f"{FRONTEND_URL}/dashboard/conversations/{conversation_id}"
+    truncated = (visitor_message or "")[:400]
+
+    payload = {
+        "text": f":warning: AI failed for *{business_name}* — human response needed",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "⚠️ AI chatbot needs human takeover"},
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Tenant*\n{business_name}"},
+                    {"type": "mrkdwn", "text": f"*Visitor*\n{visitor_label}"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Visitor message:*\n>{truncated}"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Error:*\n`{error_detail}`"},
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open conversation"},
+                        "url": dashboard_link,
+                        "style": "primary",
+                    }
+                ],
+            },
+        ],
+    }
+    try:
+        with httpx.Client(timeout=5) as client:
+            client.post(webhook_url, json=payload)
+        logger.info(f"[Slack] Sent escalation for conversation {conversation_id}")
+    except Exception as e:
+        logger.warning(f"[Slack] Failed to post escalation: {e}")
+
+
 def send_plan_cancelled(*, to: str, business_name: str) -> None:
     """Sent when a subscription is cancelled."""
     content = f"""
@@ -167,3 +284,124 @@ def send_plan_cancelled(*, to: str, business_name: str) -> None:
 </p>
 """
     _send(to=to, subject="ChatBot AI subscription cancelled", html=_base(content))
+
+
+def send_notification_test(*, to: str, business_name: str, cc: list[str] | None = None) -> None:
+    """Sample escalation-style email so tenants can verify their delivery setup."""
+    content = f"""
+<h2>✅ Notification test</h2>
+<p>Hi {business_name}, this is a test email from <strong>ChatBot AI</strong>. If you're
+seeing this, your AI-escalation alerts will land in this inbox when your chatbot
+needs human help.</p>
+
+<p style="color:#6b7280;font-size:14px;">No action required — this is just a delivery check.</p>
+"""
+    _send(
+        to=to,
+        subject="ChatBot AI — notification test",
+        html=_base(content),
+        cc=cc,
+    )
+
+
+def notify_slack_keyword_alert(
+    *,
+    webhook_url: str | None,
+    business_name: str,
+    conversation_id: str,
+    visitor_name: str | None,
+    visitor_email: str | None,
+    visitor_message: str,
+    matched_keywords: str,
+) -> None:
+    """Post a keyword-triggered alert to a tenant's Slack incoming webhook."""
+    if not webhook_url:
+        return
+
+    visitor_label = visitor_name or visitor_email or "A visitor"
+    dashboard_link = f"{FRONTEND_URL}/dashboard/conversations/{conversation_id}"
+    truncated = (visitor_message or "")[:400]
+
+    payload = {
+        "text": f":bell: Keyword alert for *{business_name}* — \"{matched_keywords}\"",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "🔔 Alert keyword detected"},
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Tenant*\n{business_name}"},
+                    {"type": "mrkdwn", "text": f"*Visitor*\n{visitor_label}"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Matched keywords:*\n`{matched_keywords}`"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Visitor message:*\n>{truncated}"},
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open conversation"},
+                        "url": dashboard_link,
+                        "style": "primary",
+                    }
+                ],
+            },
+        ],
+    }
+    try:
+        with httpx.Client(timeout=5) as client:
+            client.post(webhook_url, json=payload)
+        logger.info(f"[Slack] Sent keyword alert for conversation {conversation_id}")
+    except Exception as e:
+        logger.warning(f"[Slack] Failed to post keyword alert: {e}")
+
+
+def send_keyword_alert_email(
+    *,
+    to: str,
+    business_name: str,
+    conversation_id: str,
+    visitor_name: str | None,
+    visitor_email: str | None,
+    visitor_message: str,
+    matched_keywords: str,
+    cc: list[str] | None = None,
+) -> None:
+    """Email alert when a visitor's message matches an alert keyword."""
+    visitor_label = visitor_name or visitor_email or "A visitor"
+    truncated = (visitor_message or "")[:500]
+    dashboard_link = f"{FRONTEND_URL}/dashboard/conversations/{conversation_id}"
+
+    content = f"""
+<h2>🔔 Alert keyword detected</h2>
+<p><strong>{visitor_label}</strong> sent a message that matched your alert keyword(s): <code>{matched_keywords}</code></p>
+
+<div style="background:#f3f4f6;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:4px;margin:16px 0;">
+  <p style="margin:0;color:#374151;font-style:italic;">"{truncated}"</p>
+</div>
+
+<p>This may need immediate attention.</p>
+
+<a href="{dashboard_link}" class="btn">Open conversation →</a>
+
+<p style="color:#6b7280;font-size:14px;margin-top:24px;">
+  You're receiving this because "<strong>{matched_keywords}</strong>" is in your alert keywords.
+  Manage keywords in <a href="{FRONTEND_URL}/dashboard/integrations">Integration settings</a>.
+</p>
+"""
+    _send(
+        to=to,
+        subject=f"🔔 ChatBot AI — Keyword alert: {matched_keywords}",
+        html=_base(content),
+        cc=cc,
+    )
+

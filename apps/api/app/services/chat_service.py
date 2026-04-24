@@ -3,6 +3,8 @@ RAG-powered chat service.
 Provider priority: groq → anthropic → openai → gemini → grok
 Embeddings: OpenAI if key set, otherwise falls back to keyword search.
 """
+import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -11,12 +13,19 @@ from sqlalchemy import select, text
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.core.redis import get_conversation_history, append_conversation_message
+from app.core.redis import get_conversation_history, append_conversation_message, publish_to_conversation, publish_to_tenant
 from app.models.tenant import Tenant, Plan
 from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.models.widget import WidgetConfig
 from app.schemas.chat import VisitorInfo
-from app.services import lead_capture_service
+from app.services import email_service, lead_capture_service
+
+logger = logging.getLogger(__name__)
+
+AI_FAILURE_FALLBACK = (
+    "Our AI assistant is temporarily unavailable. A human team member will "
+    "follow up with you shortly — thank you for your patience!"
+)
 
 PLAN_LIMITS = {
     Plan.free: 100,
@@ -272,7 +281,7 @@ async def handle_chat(
     conversation_id: uuid.UUID | None, page_url: str | None,
     db: AsyncSession,
     user_info: VisitorInfo | None = None,
-) -> tuple[str, uuid.UUID]:
+) -> tuple[str, uuid.UUID, uuid.UUID]:
 
     result = await db.execute(select(Tenant).where(Tenant.bot_id == bot_id))
     tenant = result.scalar_one_or_none()
@@ -341,9 +350,11 @@ async def handle_chat(
     await db.commit()
 
     # ── Human Agent Takeover ──
-    # If a human is talking, skip the AI completely.
+    # If a human is talking, skip the AI completely. The widget treats the
+    # "__human_mode__" sentinel as "don't render a bot reply" but still needs
+    # a valid message_id + conversation_id per ChatResponse schema.
     if conv.mode == "human":
-        return "__human_mode__", conv.id
+        return "__human_mode__", user_msg_id, conv.id
 
     # ── AI Reply ──
     history = await get_conversation_history(str(bot_id), visitor_id)
@@ -356,7 +367,14 @@ async def handle_chat(
     context_text = "\n\n---\n\n".join(context_chunks) if context_chunks else "No relevant context found."
     full_system = f"{system_prompt}\n\n<context>\n{context_text}\n</context>"
 
-    reply, tokens_used = await _call_ai(messages, full_system)
+    try:
+        reply, tokens_used = await _call_ai(messages, full_system)
+    except Exception as exc:
+        logger.exception(f"[AI Escalation] Provider failed for conversation {conv.id}: {exc}")
+        return await _escalate_to_human(
+            tenant=tenant, conv=conv, visitor_message=message,
+            error_detail=f"{type(exc).__name__}: {exc}"[:300], db=db,
+        )
 
     ai_msg_id = uuid.uuid4()
     db.add(WebMessage(id=ai_msg_id, conversation_id=conv.id, role=MessageRole.assistant, content=reply, tokens_used=tokens_used))
@@ -367,16 +385,164 @@ async def handle_chat(
 
     # Broadcast AI reply
     ai_payload = {
-        "id": str(ai_msg_id), 
-        "role": "assistant", 
-        "content": reply, 
+        "id": str(ai_msg_id),
+        "role": "assistant",
+        "content": reply,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await publish_to_conversation(str(conv.id), ai_payload)
     await publish_to_tenant(str(tenant.id), {
-        "type": "new_message", 
-        "conversation_id": str(conv.id), 
+        "type": "new_message",
+        "conversation_id": str(conv.id),
         "message": ai_payload
     })
 
+    # ── Keyword-based alerts (runs even when AI succeeded) ──────────
+    if tenant.alert_keywords:
+        msg_lower = message.lower()
+        matched = [kw for kw in tenant.alert_keywords if kw in msg_lower]
+        if matched:
+            asyncio.create_task(_notify_keyword_alert(
+                tenant=tenant, conv=conv,
+                visitor_message=message,
+                matched_keywords=matched,
+            ))
+
     return reply, ai_msg_id, conv.id
+
+
+async def _escalate_to_human(
+    *, tenant: Tenant, conv: WebConversation, visitor_message: str,
+    error_detail: str, db: AsyncSession,
+) -> tuple[str, uuid.UUID, uuid.UUID]:
+    """
+    Called when the AI provider fails. Flips the conversation to human mode,
+    stores a fallback reply, broadcasts to the dashboard, and fires email + Slack
+    alerts to the tenant. The visitor sees a graceful "we'll follow up" message.
+    """
+    conv.mode = "human"
+
+    fallback_msg_id = uuid.uuid4()
+    db.add(WebMessage(
+        id=fallback_msg_id, conversation_id=conv.id,
+        role=MessageRole.assistant, content=AI_FAILURE_FALLBACK, tokens_used=0,
+    ))
+    await db.commit()
+
+    await append_conversation_message(str(tenant.bot_id), conv.visitor_id, "assistant", AI_FAILURE_FALLBACK)
+
+    fallback_payload = {
+        "id": str(fallback_msg_id),
+        "role": "assistant",
+        "content": AI_FAILURE_FALLBACK,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await publish_to_conversation(str(conv.id), fallback_payload)
+    await publish_to_tenant(str(tenant.id), {
+        "type": "ai_escalation",
+        "conversation_id": str(conv.id),
+        "message": fallback_payload,
+        "reason": error_detail,
+    })
+
+    # Fire-and-forget: notify the tenant so an agent can take over.
+    # Run sync Resend + Slack calls in a worker thread so they don't block the reply.
+    async def _notify() -> None:
+        try:
+            primary_to = tenant.primary_notification_email or tenant.email
+            cc_list = [
+                addr for addr in (tenant.notification_emails or [])
+                if addr.lower() != primary_to.lower()
+            ]
+            await asyncio.to_thread(
+                email_service.send_ai_escalation,
+                to=primary_to,
+                business_name=tenant.business_name,
+                conversation_id=str(conv.id),
+                visitor_name=conv.visitor_name,
+                visitor_email=conv.visitor_email,
+                visitor_message=visitor_message,
+                error_detail=error_detail,
+                cc=cc_list or None,
+            )
+
+            # Decrypt the tenant's Slack webhook if configured. Corrupted/unreadable
+            # ciphertext is treated as "not configured" rather than crashing the alert.
+            slack_url: str | None = None
+            if tenant.slack_webhook_url:
+                try:
+                    from app.core.encryption import decrypt_secret, InvalidToken
+                    slack_url = decrypt_secret(tenant.slack_webhook_url)
+                except InvalidToken:
+                    logger.warning(
+                        f"[AI Escalation] Tenant {tenant.id} has an unreadable slack_webhook_url — skipping Slack alert"
+                    )
+
+            await asyncio.to_thread(
+                email_service.notify_slack_escalation,
+                webhook_url=slack_url,
+                business_name=tenant.business_name,
+                conversation_id=str(conv.id),
+                visitor_name=conv.visitor_name,
+                visitor_email=conv.visitor_email,
+                visitor_message=visitor_message,
+                error_detail=error_detail,
+            )
+        except Exception as e:
+            logger.warning(f"[AI Escalation] Notification failed: {e}")
+
+    asyncio.create_task(_notify())
+
+    return AI_FAILURE_FALLBACK, fallback_msg_id, conv.id
+
+
+async def _notify_keyword_alert(
+    *, tenant: Tenant, conv: WebConversation,
+    visitor_message: str, matched_keywords: list[str],
+) -> None:
+    """Fire Slack + email alert when a visitor message matches alert keywords."""
+    try:
+        keywords_str = ", ".join(matched_keywords)
+
+        # Decrypt tenant's Slack webhook if configured
+        slack_url: str | None = None
+        if tenant.slack_webhook_url:
+            try:
+                from app.core.encryption import decrypt_secret, InvalidToken
+                slack_url = decrypt_secret(tenant.slack_webhook_url)
+            except InvalidToken:
+                logger.warning(
+                    f"[Keyword Alert] Tenant {tenant.id} has an unreadable slack_webhook_url — skipping Slack"
+                )
+
+        await asyncio.to_thread(
+            email_service.notify_slack_keyword_alert,
+            webhook_url=slack_url,
+            business_name=tenant.business_name,
+            conversation_id=str(conv.id),
+            visitor_name=conv.visitor_name,
+            visitor_email=conv.visitor_email,
+            visitor_message=visitor_message,
+            matched_keywords=keywords_str,
+        )
+
+        # Also email the tenant
+        primary_to = tenant.primary_notification_email or tenant.email
+        cc_list = [
+            addr for addr in (tenant.notification_emails or [])
+            if addr.lower() != primary_to.lower()
+        ]
+        await asyncio.to_thread(
+            email_service.send_keyword_alert_email,
+            to=primary_to,
+            business_name=tenant.business_name,
+            conversation_id=str(conv.id),
+            visitor_name=conv.visitor_name,
+            visitor_email=conv.visitor_email,
+            visitor_message=visitor_message,
+            matched_keywords=keywords_str,
+            cc=cc_list or None,
+        )
+    except Exception as e:
+        logger.warning(f"[Keyword Alert] Notification failed: {e}")
+
