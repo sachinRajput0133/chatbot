@@ -8,6 +8,8 @@ import {
   useNotificationEmailsQuery,
   useSetNotificationEmailsMutation,
   useTestNotificationEmailMutation,
+  useAlertKeywordsQuery,
+  useSetAlertKeywordsMutation,
 } from "@/lib/api";
 
 type Banner = { type: "success" | "error"; text: string } | null;
@@ -186,8 +188,166 @@ export default function IntegrationsPage() {
         )}
       </section>
 
+      <AlertKeywordsCard />
+
       <EmailNotificationsCard />
     </div>
+  );
+}
+
+const SUGGESTED_KEYWORDS = [
+  "payment", "refund", "cancel", "complaint", "urgent",
+  "billing", "help", "support", "order not received",
+  "speak to human", "call me", "disappointed", "not working",
+];
+const MAX_KEYWORDS = 20;
+
+function AlertKeywordsCard() {
+  const { data, isLoading } = useAlertKeywordsQuery();
+  const [setKeywords, { isLoading: saving }] = useSetAlertKeywordsMutation();
+
+  const [draft, setDraft] = useState("");
+  const [banner, setBanner] = useState<Banner>(null);
+
+  const keywords = data?.keywords ?? [];
+
+  async function handleAdd(keyword: string) {
+    const value = keyword.trim().toLowerCase();
+    if (!value) return;
+    if (keywords.includes(value)) {
+      setBanner({ type: "error", text: `"${value}" is already added.` });
+      return;
+    }
+    if (keywords.length >= MAX_KEYWORDS) {
+      setBanner({ type: "error", text: `Maximum ${MAX_KEYWORDS} keywords allowed.` });
+      return;
+    }
+    setBanner(null);
+    try {
+      await setKeywords({ keywords: [...keywords, value] }).unwrap();
+      setDraft("");
+    } catch {
+      setBanner({ type: "error", text: "Failed to save keyword." });
+    }
+  }
+
+  async function handleRemove(keyword: string) {
+    setBanner(null);
+    try {
+      await setKeywords({ keywords: keywords.filter((k) => k !== keyword) }).unwrap();
+    } catch {
+      setBanner({ type: "error", text: "Failed to remove keyword." });
+    }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    handleAdd(draft);
+  }
+
+  if (isLoading) return null;
+
+  const unusedSuggestions = SUGGESTED_KEYWORDS.filter((s) => !keywords.includes(s));
+
+  return (
+    <section className="bg-white border border-gray-200 rounded-xl p-6 mt-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold text-lg">
+          🔔
+        </div>
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold text-gray-900">Alert Keywords</h2>
+          <p className="text-sm text-gray-500">
+            Get notified when visitors mention these words — even when AI replies successfully.
+          </p>
+        </div>
+        {keywords.length > 0 && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-1">
+            {keywords.length} active
+          </span>
+        )}
+      </div>
+
+      {banner && (
+        <div
+          className={`mb-4 px-4 py-3 rounded-lg text-sm ${
+            banner.type === "success"
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-red-50 text-red-700 border border-red-200"
+          }`}
+        >
+          {banner.text}
+        </div>
+      )}
+
+      {/* Current keywords as tag pills */}
+      {keywords.length > 0 && (
+        <div className="mb-4">
+          <ul className="flex flex-wrap gap-2">
+            {keywords.map((kw) => (
+              <li
+                key={kw}
+                className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-full pl-3 pr-1.5 py-1 text-sm text-amber-800"
+              >
+                <span>{kw}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemove(kw)}
+                  disabled={saving}
+                  aria-label={`Remove "${kw}"`}
+                  className="w-5 h-5 rounded-full text-amber-500 hover:bg-amber-200 hover:text-amber-700 disabled:opacity-50 flex items-center justify-center"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Add keyword input */}
+      <form onSubmit={handleSubmit} className="flex gap-2 mb-3">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Add keyword or phrase…"
+          disabled={keywords.length >= MAX_KEYWORDS}
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-gray-50"
+        />
+        <button
+          type="submit"
+          disabled={saving || !draft.trim() || keywords.length >= MAX_KEYWORDS}
+          className="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 disabled:opacity-50"
+        >
+          {saving ? "Adding…" : "Add"}
+        </button>
+      </form>
+
+      <p className="text-xs text-gray-500 mb-4">
+        {keywords.length} / {MAX_KEYWORDS} keywords configured. Uses substring matching (case-insensitive).
+      </p>
+
+      {/* Suggested keywords */}
+      {unusedSuggestions.length > 0 && (
+        <div className="border-t border-gray-100 pt-4">
+          <p className="text-xs font-medium text-gray-500 mb-2">Suggested keywords:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {unusedSuggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => handleAdd(s)}
+                disabled={saving}
+                className="px-2.5 py-1 rounded-full text-xs border border-gray-200 text-gray-600 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700 disabled:opacity-50 transition-colors"
+              >
+                + {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

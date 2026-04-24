@@ -23,6 +23,8 @@ from app.schemas.integrations import (
     NotificationEmailsConfig,
     SetNotificationEmailsRequest,
     TestEmailResponse,
+    AlertKeywordsConfig,
+    SetAlertKeywordsRequest,
 )
 from app.services import email_service
 
@@ -219,3 +221,30 @@ async def test_notification_email(
         )
 
     return TestEmailResponse(ok=True, sent_to=primary, cc_count=len(cc_list))
+
+
+# ── Alert Keywords ────────────────────────────────────────────────────────────
+
+@router.get("/alert-keywords", response_model=AlertKeywordsConfig)
+async def get_alert_keywords(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the tenant's configured alert keywords."""
+    tenant = await _get_tenant_for_user(user_id, db)
+    return AlertKeywordsConfig(keywords=tenant.alert_keywords or [])
+
+
+@router.put("/alert-keywords", response_model=AlertKeywordsConfig)
+async def set_alert_keywords(
+    data: SetAlertKeywordsRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the tenant's alert keywords. An empty list disables keyword alerts."""
+    tenant = await _get_tenant_for_user(user_id, db)
+    tenant.alert_keywords = data.keywords or None
+    await db.commit()
+    await db.refresh(tenant)
+    return AlertKeywordsConfig(keywords=tenant.alert_keywords or [])
+

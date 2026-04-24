@@ -76,3 +76,28 @@ class SetNotificationEmailsRequest(BaseModel):
     @classmethod
     def _lowercase_primary(cls, v: str | None) -> str | None:
         return v.lower() if v else None
+
+
+MAX_ALERT_KEYWORDS = 20
+
+
+class AlertKeywordsConfig(BaseModel):
+    """Read view for tenant alert keywords."""
+    keywords: list[str] = Field(default_factory=list)
+    max_keywords: int = MAX_ALERT_KEYWORDS
+
+
+class SetAlertKeywordsRequest(BaseModel):
+    keywords: list[str] = Field(default_factory=list)
+
+    @field_validator("keywords")
+    @classmethod
+    def validate_keywords(cls, v: list[str]) -> list[str]:
+        # Normalize: lowercase, strip, deduplicate, remove empties
+        cleaned = list(dict.fromkeys(
+            kw.strip().lower() for kw in v if kw.strip()
+        ))
+        if len(cleaned) > MAX_ALERT_KEYWORDS:
+            raise ValueError(f"Maximum {MAX_ALERT_KEYWORDS} alert keywords allowed")
+        return cleaned
+

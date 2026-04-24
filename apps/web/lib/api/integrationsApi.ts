@@ -28,6 +28,11 @@ export interface TestEmailResponse {
   detail: string | null;
 }
 
+export interface AlertKeywordsConfig {
+  keywords: string[];
+  max_keywords: number;
+}
+
 export const integrationsApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     slackStatus: build.query<SlackIntegrationStatus, void>({
@@ -56,6 +61,14 @@ export const integrationsApi = baseApi.injectEndpoints({
     testNotificationEmail: build.mutation<TestEmailResponse, void>({
       query: () => ({ url: "/api/integrations/email-notifications/test", method: "POST" }),
     }),
+    alertKeywords: build.query<AlertKeywordsConfig, void>({
+      query: () => "/api/integrations/alert-keywords",
+      providesTags: ["Integrations"],
+    }),
+    setAlertKeywords: build.mutation<AlertKeywordsConfig, { keywords: string[] }>({
+      query: (body) => ({ url: "/api/integrations/alert-keywords", method: "PUT", body }),
+      invalidatesTags: ["Integrations"],
+    }),
   }),
 });
 
@@ -67,4 +80,6 @@ export const {
   useNotificationEmailsQuery,
   useSetNotificationEmailsMutation,
   useTestNotificationEmailMutation,
+  useAlertKeywordsQuery,
+  useSetAlertKeywordsMutation,
 } = integrationsApi;

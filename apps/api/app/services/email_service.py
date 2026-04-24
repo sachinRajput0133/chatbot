@@ -302,3 +302,106 @@ needs human help.</p>
         html=_base(content),
         cc=cc,
     )
+
+
+def notify_slack_keyword_alert(
+    *,
+    webhook_url: str | None,
+    business_name: str,
+    conversation_id: str,
+    visitor_name: str | None,
+    visitor_email: str | None,
+    visitor_message: str,
+    matched_keywords: str,
+) -> None:
+    """Post a keyword-triggered alert to a tenant's Slack incoming webhook."""
+    if not webhook_url:
+        return
+
+    visitor_label = visitor_name or visitor_email or "A visitor"
+    dashboard_link = f"{FRONTEND_URL}/dashboard/conversations/{conversation_id}"
+    truncated = (visitor_message or "")[:400]
+
+    payload = {
+        "text": f":bell: Keyword alert for *{business_name}* — \"{matched_keywords}\"",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "🔔 Alert keyword detected"},
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Tenant*\n{business_name}"},
+                    {"type": "mrkdwn", "text": f"*Visitor*\n{visitor_label}"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Matched keywords:*\n`{matched_keywords}`"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Visitor message:*\n>{truncated}"},
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Open conversation"},
+                        "url": dashboard_link,
+                        "style": "primary",
+                    }
+                ],
+            },
+        ],
+    }
+    try:
+        with httpx.Client(timeout=5) as client:
+            client.post(webhook_url, json=payload)
+        logger.info(f"[Slack] Sent keyword alert for conversation {conversation_id}")
+    except Exception as e:
+        logger.warning(f"[Slack] Failed to post keyword alert: {e}")
+
+
+def send_keyword_alert_email(
+    *,
+    to: str,
+    business_name: str,
+    conversation_id: str,
+    visitor_name: str | None,
+    visitor_email: str | None,
+    visitor_message: str,
+    matched_keywords: str,
+    cc: list[str] | None = None,
+) -> None:
+    """Email alert when a visitor's message matches an alert keyword."""
+    visitor_label = visitor_name or visitor_email or "A visitor"
+    truncated = (visitor_message or "")[:500]
+    dashboard_link = f"{FRONTEND_URL}/dashboard/conversations/{conversation_id}"
+
+    content = f"""
+<h2>🔔 Alert keyword detected</h2>
+<p><strong>{visitor_label}</strong> sent a message that matched your alert keyword(s): <code>{matched_keywords}</code></p>
+
+<div style="background:#f3f4f6;border-left:4px solid #f59e0b;padding:12px 16px;border-radius:4px;margin:16px 0;">
+  <p style="margin:0;color:#374151;font-style:italic;">"{truncated}"</p>
+</div>
+
+<p>This may need immediate attention.</p>
+
+<a href="{dashboard_link}" class="btn">Open conversation →</a>
+
+<p style="color:#6b7280;font-size:14px;margin-top:24px;">
+  You're receiving this because "<strong>{matched_keywords}</strong>" is in your alert keywords.
+  Manage keywords in <a href="{FRONTEND_URL}/dashboard/integrations">Integration settings</a>.
+</p>
+"""
+    _send(
+        to=to,
+        subject=f"🔔 ChatBot AI — Keyword alert: {matched_keywords}",
+        html=_base(content),
+        cc=cc,
+    )
+

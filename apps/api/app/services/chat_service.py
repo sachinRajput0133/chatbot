@@ -397,6 +397,17 @@ async def handle_chat(
         "message": ai_payload
     })
 
+    # ── Keyword-based alerts (runs even when AI succeeded) ──────────
+    if tenant.alert_keywords:
+        msg_lower = message.lower()
+        matched = [kw for kw in tenant.alert_keywords if kw in msg_lower]
+        if matched:
+            asyncio.create_task(_notify_keyword_alert(
+                tenant=tenant, conv=conv,
+                visitor_message=message,
+                matched_keywords=matched,
+            ))
+
     return reply, ai_msg_id, conv.id
 
 
@@ -483,3 +494,55 @@ async def _escalate_to_human(
     asyncio.create_task(_notify())
 
     return AI_FAILURE_FALLBACK, fallback_msg_id, conv.id
+
+
+async def _notify_keyword_alert(
+    *, tenant: Tenant, conv: WebConversation,
+    visitor_message: str, matched_keywords: list[str],
+) -> None:
+    """Fire Slack + email alert when a visitor message matches alert keywords."""
+    try:
+        keywords_str = ", ".join(matched_keywords)
+
+        # Decrypt tenant's Slack webhook if configured
+        slack_url: str | None = None
+        if tenant.slack_webhook_url:
+            try:
+                from app.core.encryption import decrypt_secret, InvalidToken
+                slack_url = decrypt_secret(tenant.slack_webhook_url)
+            except InvalidToken:
+                logger.warning(
+                    f"[Keyword Alert] Tenant {tenant.id} has an unreadable slack_webhook_url — skipping Slack"
+                )
+
+        await asyncio.to_thread(
+            email_service.notify_slack_keyword_alert,
+            webhook_url=slack_url,
+            business_name=tenant.business_name,
+            conversation_id=str(conv.id),
+            visitor_name=conv.visitor_name,
+            visitor_email=conv.visitor_email,
+            visitor_message=visitor_message,
+            matched_keywords=keywords_str,
+        )
+
+        # Also email the tenant
+        primary_to = tenant.primary_notification_email or tenant.email
+        cc_list = [
+            addr for addr in (tenant.notification_emails or [])
+            if addr.lower() != primary_to.lower()
+        ]
+        await asyncio.to_thread(
+            email_service.send_keyword_alert_email,
+            to=primary_to,
+            business_name=tenant.business_name,
+            conversation_id=str(conv.id),
+            visitor_name=conv.visitor_name,
+            visitor_email=conv.visitor_email,
+            visitor_message=visitor_message,
+            matched_keywords=keywords_str,
+            cc=cc_list or None,
+        )
+    except Exception as e:
+        logger.warning(f"[Keyword Alert] Notification failed: {e}")
+

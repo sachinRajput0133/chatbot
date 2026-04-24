@@ -37,6 +37,10 @@ class Tenant(Base):
     # Per-tenant Slack incoming-webhook URL, Fernet-encrypted at rest.
     # Null = tenant has not configured Slack.
     slack_webhook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Keyword-based alert triggers. When a visitor message contains any of
+    # these keywords/phrases, fire Slack + email notifications even if AI
+    # replies successfully. Stored as a JSON array of lowercase strings.
+    alert_keywords: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     # Optional override for the primary recipient of escalation alerts.
     # Falls back to `email` (the account-owner address) when null.
     primary_notification_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
