@@ -5,6 +5,7 @@ from .widget import WidgetConfig, WidgetPosition
 from .conversation import WebConversation, WebMessage, MessageRole
 from .subscription import Subscription, SubscriptionStatus, PaymentGateway
 from .lead_capture import LeadCaptureConfig
+from .goal import GoalConfig, GoalCompletion
 
 __all__ = [
     "Tenant", "Plan",
@@ -14,4 +15,5 @@ __all__ = [
     "WebConversation", "WebMessage", "MessageRole",
     "Subscription", "SubscriptionStatus", "PaymentGateway",
     "LeadCaptureConfig",
+    "GoalConfig", "GoalCompletion",
 ]

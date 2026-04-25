@@ -151,6 +151,15 @@ export const api = {
 
   cancelSubscription: () =>
     request<{ status: string }>("/api/billing/cancel", { method: "POST" }),
+
+  getGoals: () => request<any[]>("/api/goals"),
+  createGoal: (data: any) =>
+    request<any>("/api/goals", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteGoal: (goalId: string) =>
+    request<{ status: string }>(`/api/goals/${goalId}`, { method: "DELETE" }),
 };
 
 /** Save token to localStorage + Redux store (if available) */

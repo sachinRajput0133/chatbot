@@ -356,6 +356,10 @@ async def handle_chat(
             except InvalidToken:
                 logger.warning(f"Invalid Zapier token for tenant {tenant.id}")
 
+    # ── Goals Evaluation ──
+    from app.services import goal_service
+    await goal_service.evaluate_goals(tenant.id, conv.id, message, page_url, db)
+
     # ── User message ──
     user_msg_id = uuid.uuid4()
     db.add(WebMessage(

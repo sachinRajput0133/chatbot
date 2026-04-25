@@ -93,8 +93,9 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
-from app.routers import auth, knowledge, widget, chat, conversations, analytics, billing, static, ws, integrations, uploads
+from app.routers import auth, knowledge, widget, chat, conversations, analytics, billing, static, ws, integrations, uploads, goals
 
+app.include_router(goals.router)
 app.include_router(auth.router)
 app.include_router(knowledge.router)
 app.include_router(widget.router)
