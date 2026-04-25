@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # Slack (optional — used for AI-failure escalation alerts)
     SLACK_WEBHOOK_URL: str = ""
 
+    # WhatsApp (optional)
+    WHATSAPP_API_VERSION: str = "v21.0"
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
 

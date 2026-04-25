@@ -8,7 +8,9 @@
     "docker:up": "docker compose -f docker-compose.dev.yml up -d && docker compose -f docker-compose.dev.yml wait db redis 2>/dev/null || sleep 5",
     "docker:down": "docker compose -f docker-compose.dev.yml down",
     "api": "fuser -k 8000/tcp 2>/dev/null; docker compose -f docker-compose.dev.yml up -d; sleep 3; cd apps/api && .venv/bin/uvicorn app.main:app --reload --port 8000",
+    "api:win": "docker compose -f docker-compose.dev.yml up -d && powershell -command \"Start-Sleep 3\" && cd apps/api && .venv\\Scripts\\uvicorn app.main:app --reload --port 8000",
     "worker": "cd apps/api && .venv/bin/celery -A app.workers.celery_app worker -Q embeddings,default -c 2 --loglevel=info",
+    "worker:win": "cd apps/api && .venv\\Scripts\\celery -A app.workers.celery_app worker -Q embeddings,default -c 2 --loglevel=info",
     "build": "turbo build",
     "lint": "turbo lint"
   },

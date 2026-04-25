@@ -10,6 +10,12 @@ import {
   useTestNotificationEmailMutation,
   useAlertKeywordsQuery,
   useSetAlertKeywordsMutation,
+  useWhatsappStatusQuery,
+  useSetWhatsAppConfigMutation,
+  useDeleteWhatsAppConfigMutation,
+  useWhatsappRecipientsQuery,
+  useSetWhatsAppRecipientsMutation,
+  useTestWhatsAppMutation,
 } from "@/lib/api";
 
 type Banner = { type: "success" | "error"; text: string } | null;
@@ -189,6 +195,8 @@ export default function IntegrationsPage() {
       </section>
 
       <AlertKeywordsCard />
+
+      <WhatsAppNotificationsCard />
 
       <EmailNotificationsCard />
     </div>
@@ -653,6 +661,245 @@ function EmailNotificationsCard() {
             </div>
           </div>
         </>
+      )}
+    </section>
+  );
+}
+
+function WhatsAppNotificationsCard() {
+  const { data: status, isLoading: loadingStatus } = useWhatsappStatusQuery();
+  const { data: recipients, isLoading: loadingRecipients } = useWhatsappRecipientsQuery();
+  const [setConfig, { isLoading: savingConfig }] = useSetWhatsAppConfigMutation();
+  const [deleteConfig, { isLoading: deletingConfig }] = useDeleteWhatsAppConfigMutation();
+  const [setRecipients, { isLoading: savingRecipients }] = useSetWhatsAppRecipientsMutation();
+  const [testWhatsApp, { isLoading: testing }] = useTestWhatsAppMutation();
+
+  const [phoneId, setPhoneId] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [banner, setBanner] = useState<Banner>(null);
+
+  const isConnected = !!status?.configured;
+
+  async function handleConnect(e: React.FormEvent) {
+    e.preventDefault();
+    setBanner(null);
+    try {
+      await setConfig({ phone_number_id: phoneId.trim(), access_token: accessToken.trim() }).unwrap();
+      setBanner({ type: "success", text: "WhatsApp credentials saved." });
+      setPhoneId("");
+      setAccessToken("");
+    } catch (err: unknown) {
+      const msg = (err as { data?: { detail?: string } })?.data?.detail ?? "Failed to save credentials.";
+      setBanner({ type: "error", text: msg });
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!confirm("Disconnect WhatsApp? Alerts will stop being sent to your phone numbers.")) return;
+    setBanner(null);
+    try {
+      await deleteConfig().unwrap();
+      setBanner({ type: "success", text: "WhatsApp disconnected." });
+    } catch {
+      setBanner({ type: "error", text: "Failed to disconnect." });
+    }
+  }
+
+  async function handleAddRecipient(e: React.FormEvent) {
+    e.preventDefault();
+    const phone = newPhone.trim();
+    if (!phone) return;
+    if (!phone.startsWith("+")) {
+       setBanner({ type: "error", text: "Phone number must start with + (E.164 format)." });
+       return;
+    }
+    const current = recipients?.phones ?? [];
+    if (current.includes(phone)) {
+      setBanner({ type: "error", text: "This number is already added." });
+      return;
+    }
+    if (current.length >= 5) {
+      setBanner({ type: "error", text: "Maximum 5 recipient numbers allowed." });
+      return;
+    }
+
+    setBanner(null);
+    try {
+      await setRecipients({ phones: [...current, phone] }).unwrap();
+      setNewPhone("");
+    } catch (err: unknown) {
+       const msg = (err as { data?: { detail?: string } })?.data?.detail ?? "Failed to add number.";
+       setBanner({ type: "error", text: msg });
+    }
+  }
+
+  async function handleRemoveRecipient(phone: string) {
+    setBanner(null);
+    try {
+      await setRecipients({ phones: (recipients?.phones ?? []).filter(p => p !== phone) }).unwrap();
+    } catch {
+      setBanner({ type: "error", text: "Failed to remove number." });
+    }
+  }
+
+  async function handleTest(useTyped: boolean) {
+    setBanner(null);
+    try {
+      const body = useTyped ? { phone_number_id: phoneId.trim(), access_token: accessToken.trim() } : {};
+      const result = await testWhatsApp(body).unwrap();
+      if (result.ok) {
+        setBanner({ type: "success", text: `Test message sent to ${result.delivered_to} recipient(s).` });
+      } else {
+        setBanner({ type: "error", text: result.detail || "WhatsApp test failed." });
+      }
+    } catch (err: unknown) {
+      const msg = (err as { data?: { detail?: string } })?.data?.detail ?? "Test failed.";
+      setBanner({ type: "error", text: msg });
+    }
+  }
+
+  if (loadingStatus || loadingRecipients) return null;
+
+  return (
+    <section className="bg-white border border-gray-200 rounded-xl p-6 mt-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-lg bg-[#25D366] text-white flex items-center justify-center font-bold text-xl">
+          W
+        </div>
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold text-gray-900">WhatsApp</h2>
+          <p className="text-sm text-gray-500">
+            Get WhatsApp alerts for AI escalations and keyword detections.
+          </p>
+        </div>
+        {isConnected && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Connected
+          </span>
+        )}
+      </div>
+
+      {banner && (
+        <div className={`mb-6 px-4 py-3 rounded-lg text-sm ${
+          banner.type === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"
+        }`}>
+          {banner.text}
+        </div>
+      )}
+
+      {!isConnected ? (
+        <form onSubmit={handleConnect} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number ID</label>
+              <input
+                type="text"
+                value={phoneId}
+                onChange={(e) => setPhoneId(e.target.value)}
+                placeholder="e.g. 123456789012345"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Access Token</label>
+              <input
+                type="password"
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                placeholder="EAAG...."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                required
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            You need a Meta Business App with the WhatsApp product enabled. 
+            <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noopener" className="text-indigo-600 ml-1 hover:underline">Learn how to setup →</a>
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={savingConfig || !phoneId.trim() || !accessToken.trim()}
+              className="px-4 py-2 rounded-lg bg-[#25D366] text-white text-sm font-medium hover:bg-[#128C7E] disabled:opacity-50"
+            >
+              {savingConfig ? "Saving..." : "Save Credentials"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTest(true)}
+              disabled={testing || !phoneId.trim() || !accessToken.trim()}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+               {testing ? "Testing..." : "Test Credentials"}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+             <div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide">Phone Number ID</div>
+                <code className="text-sm text-gray-800 font-mono">{status?.masked_phone_id}</code>
+             </div>
+             <button
+                onClick={handleDisconnect}
+                disabled={deletingConfig}
+                className="text-sm text-red-600 hover:text-red-700 font-medium disabled:opacity-50"
+             >
+                Disconnect
+             </button>
+          </div>
+
+          <div className="border-t border-gray-100 pt-6">
+             <label className="block text-sm font-medium text-gray-700 mb-1">Recipient Numbers</label>
+             <p className="text-sm text-gray-500 mb-4">Add up to 5 phone numbers to receive alerts.</p>
+             
+             {recipients?.phones && recipients.phones.length > 0 && (
+               <ul className="flex flex-wrap gap-2 mb-4">
+                  {recipients.phones.map(phone => (
+                    <li key={phone} className="inline-flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-full pl-3 pr-1.5 py-1 text-sm text-green-800">
+                       <span>{phone}</span>
+                       <button
+                         onClick={() => handleRemoveRecipient(phone)}
+                         className="w-5 h-5 rounded-full text-green-500 hover:bg-green-200 hover:text-green-700 flex items-center justify-center"
+                       >
+                         ×
+                       </button>
+                    </li>
+                  ))}
+               </ul>
+             )}
+
+             <form onSubmit={handleAddRecipient} className="flex gap-2">
+                <input
+                  type="text"
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="+1234567890"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#25D366]"
+                />
+                <button
+                  type="submit"
+                  disabled={savingRecipients || !newPhone.trim() || (recipients?.phones?.length ?? 0) >= 5}
+                  className="px-4 py-2 rounded-lg bg-[#25D366] text-white text-sm font-medium hover:bg-[#128C7E] disabled:opacity-50"
+                >
+                  Add
+                </button>
+             </form>
+          </div>
+
+          <div className="flex gap-2 pt-4">
+             <button
+                onClick={() => handleTest(false)}
+                disabled={testing || (recipients?.phones?.length ?? 0) === 0}
+                className="px-4 py-2 rounded-lg bg-[#25D366] text-white text-sm font-medium hover:bg-[#128C7E] disabled:opacity-50"
+             >
+                {testing ? "Sending..." : "Send Test Message"}
+             </button>
+          </div>
+        </div>
       )}
     </section>
   );

@@ -101,3 +101,53 @@ class SetAlertKeywordsRequest(BaseModel):
             raise ValueError(f"Maximum {MAX_ALERT_KEYWORDS} alert keywords allowed")
         return cleaned
 
+
+# ── WhatsApp ──────────────────────────────────────────────────────────────────
+
+class WhatsAppIntegrationStatus(BaseModel):
+    configured: bool
+    masked_phone_id: str | None = None
+    recipient_count: int = 0
+
+
+class SetWhatsAppConfigRequest(BaseModel):
+    phone_number_id: str = Field(..., min_length=5, max_length=100)
+    access_token: str = Field(..., min_length=20, max_length=1000)
+
+
+class SetWhatsAppRecipientsRequest(BaseModel):
+    phones: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("phones")
+    @classmethod
+    def validate_phones(cls, v: list[str]) -> list[str]:
+        import re
+        # Basic E.164-ish validation: + followed by 7-15 digits
+        cleaned = []
+        for p in v:
+            p = p.strip()
+            if not p:
+                continue
+            if not re.match(r"^\+\d{7,15}$", p):
+                raise ValueError(f"Invalid phone number format: {p}. Must be E.164 (e.g. +1234567890)")
+            cleaned.append(p)
+        return list(dict.fromkeys(cleaned)) # Deduplicate
+
+
+class TestWhatsAppRequest(BaseModel):
+    """Optional override — if omitted, tests the stored credentials."""
+    phone_number_id: str | None = None
+    access_token: str | None = None
+    test_phone: str | None = None  # Optional number to test before saving recipients
+
+
+class TestWhatsAppResponse(BaseModel):
+    ok: bool
+    detail: str | None = None
+    delivered_to: int = 0
+
+
+class WhatsAppRecipientsConfig(BaseModel):
+    phones: list[str] = Field(default_factory=list)
+    max_recipients: int = 5
+

@@ -46,6 +46,12 @@ class Tenant(Base):
     primary_notification_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Up to 5 additional email addresses that get CC'd on escalation alerts.
     notification_emails: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # Per-tenant WhatsApp Cloud API credentials, Fernet-encrypted at rest.
+    # Null = tenant has not configured WhatsApp.
+    whatsapp_phone_number_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    whatsapp_access_token: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Up to 5 E.164 phone numbers that receive WhatsApp alert messages.
+    whatsapp_recipient_phones: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

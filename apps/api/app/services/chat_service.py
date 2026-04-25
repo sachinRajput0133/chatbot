@@ -18,7 +18,7 @@ from app.models.tenant import Tenant, Plan
 from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.models.widget import WidgetConfig
 from app.schemas.chat import VisitorInfo
-from app.services import email_service, lead_capture_service
+from app.services import email_service, lead_capture_service, whatsapp_service
 
 logger = logging.getLogger(__name__)
 
@@ -488,6 +488,26 @@ async def _escalate_to_human(
                 visitor_message=visitor_message,
                 error_detail=error_detail,
             )
+
+            # --- WhatsApp Escalation ---
+            if tenant.whatsapp_phone_number_id and tenant.whatsapp_access_token:
+                try:
+                    from app.core.encryption import decrypt_secret
+                    wa_phone_id = decrypt_secret(tenant.whatsapp_phone_number_id)
+                    wa_token = decrypt_secret(tenant.whatsapp_access_token)
+                    
+                    await asyncio.to_thread(
+                        whatsapp_service.notify_whatsapp_escalation,
+                        phone_number_id=wa_phone_id,
+                        access_token=wa_token,
+                        recipients=tenant.whatsapp_recipient_phones,
+                        business_name=tenant.business_name,
+                        conversation_id=str(conv.id),
+                        visitor_name=conv.visitor_name,
+                        visitor_message=visitor_message,
+                    )
+                except Exception as wa_err:
+                    logger.warning(f"[WhatsApp Escalation] Failed: {wa_err}")
         except Exception as e:
             logger.warning(f"[AI Escalation] Notification failed: {e}")
 
@@ -543,6 +563,27 @@ async def _notify_keyword_alert(
             matched_keywords=keywords_str,
             cc=cc_list or None,
         )
+
+        # --- WhatsApp Keyword Alert ---
+        if tenant.whatsapp_phone_number_id and tenant.whatsapp_access_token:
+            try:
+                from app.core.encryption import decrypt_secret
+                wa_phone_id = decrypt_secret(tenant.whatsapp_phone_number_id)
+                wa_token = decrypt_secret(tenant.whatsapp_access_token)
+                
+                await asyncio.to_thread(
+                    whatsapp_service.notify_whatsapp_keyword_alert,
+                    phone_number_id=wa_phone_id,
+                    access_token=wa_token,
+                    recipients=tenant.whatsapp_recipient_phones,
+                    business_name=tenant.business_name,
+                    conversation_id=str(conv.id),
+                    visitor_name=conv.visitor_name,
+                    visitor_message=visitor_message,
+                    matched_keywords=keywords_str,
+                )
+            except Exception as wa_err:
+                logger.warning(f"[WhatsApp Keyword Alert] Failed: {wa_err}")
     except Exception as e:
         logger.warning(f"[Keyword Alert] Notification failed: {e}")
 

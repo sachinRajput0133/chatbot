@@ -1,7 +1,8 @@
 """
-Per-tenant integration settings. Currently: Slack incoming webhook for AI-escalation alerts.
-All endpoints require an authenticated user; the webhook is scoped to that user's tenant.
+Per-tenant integration settings: Slack, Email, WhatsApp notification channels.
+All endpoints require an authenticated user; settings are scoped to that user's tenant.
 """
+import asyncio
 import logging
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -25,8 +26,14 @@ from app.schemas.integrations import (
     TestEmailResponse,
     AlertKeywordsConfig,
     SetAlertKeywordsRequest,
+    WhatsAppIntegrationStatus,
+    SetWhatsAppConfigRequest,
+    SetWhatsAppRecipientsRequest,
+    TestWhatsAppRequest,
+    TestWhatsAppResponse,
+    WhatsAppRecipientsConfig,
 )
-from app.services import email_service
+from app.services import email_service, whatsapp_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
@@ -193,7 +200,6 @@ async def test_notification_email(
     ]
 
     try:
-        import asyncio
         await asyncio.to_thread(
             email_service.send_notification_test,
             to=primary,
@@ -247,4 +253,136 @@ async def set_alert_keywords(
     await db.commit()
     await db.refresh(tenant)
     return AlertKeywordsConfig(keywords=tenant.alert_keywords or [])
+
+
+# ── WhatsApp ──────────────────────────────────────────────────────────────────
+
+
+def _mask_id(id_str: str) -> str:
+    """Return '123…890'."""
+    if len(id_str) <= 6:
+        return id_str
+    return f"{id_str[:3]}…{id_str[-3:]}"
+
+
+@router.get("/whatsapp", response_model=WhatsAppIntegrationStatus)
+async def get_whatsapp_status(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    if not tenant.whatsapp_phone_number_id or not tenant.whatsapp_access_token:
+        return WhatsAppIntegrationStatus(configured=False)
+    
+    try:
+        phone_id = decrypt_secret(tenant.whatsapp_phone_number_id)
+    except InvalidToken:
+        return WhatsAppIntegrationStatus(configured=False)
+        
+    return WhatsAppIntegrationStatus(
+        configured=True,
+        masked_phone_id=_mask_id(phone_id),
+        recipient_count=len(tenant.whatsapp_recipient_phones or [])
+    )
+
+
+@router.put("/whatsapp", response_model=WhatsAppIntegrationStatus)
+async def set_whatsapp_config(
+    data: SetWhatsAppConfigRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    tenant.whatsapp_phone_number_id = encrypt_secret(data.phone_number_id)
+    tenant.whatsapp_access_token = encrypt_secret(data.access_token)
+    await db.commit()
+    await db.refresh(tenant)
+    return WhatsAppIntegrationStatus(
+        configured=True,
+        masked_phone_id=_mask_id(data.phone_number_id),
+        recipient_count=len(tenant.whatsapp_recipient_phones or [])
+    )
+
+
+@router.delete("/whatsapp", status_code=204)
+async def delete_whatsapp_config(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    tenant.whatsapp_phone_number_id = None
+    tenant.whatsapp_access_token = None
+    tenant.whatsapp_recipient_phones = None
+    await db.commit()
+
+
+@router.get("/whatsapp/recipients", response_model=WhatsAppRecipientsConfig)
+async def get_whatsapp_recipients(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    return WhatsAppRecipientsConfig(phones=tenant.whatsapp_recipient_phones or [])
+
+
+@router.put("/whatsapp/recipients", response_model=WhatsAppRecipientsConfig)
+async def set_whatsapp_recipients(
+    data: SetWhatsAppRecipientsRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    tenant.whatsapp_recipient_phones = data.phones or None
+    await db.commit()
+    await db.refresh(tenant)
+    return WhatsAppRecipientsConfig(phones=tenant.whatsapp_recipient_phones or [])
+
+
+@router.post("/whatsapp/test", response_model=TestWhatsAppResponse)
+@limiter.limit("5/minute")
+async def test_whatsapp_config(
+    request: Request,
+    data: TestWhatsAppRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+
+    phone_id: str | None = data.phone_number_id
+    token: str | None = data.access_token
+    
+    if phone_id is None or token is None:
+        if not tenant.whatsapp_phone_number_id or not tenant.whatsapp_access_token:
+            raise HTTPException(status_code=400, detail="WhatsApp not configured yet")
+        try:
+            phone_id = decrypt_secret(tenant.whatsapp_phone_number_id)
+            token = decrypt_secret(tenant.whatsapp_access_token)
+        except InvalidToken:
+            raise HTTPException(status_code=500, detail="Stored credentials are unreadable — please re-save them")
+
+    recipients = tenant.whatsapp_recipient_phones or []
+    
+    # If a specific test phone is provided, use only that (useful for test-before-save)
+    if data.test_phone:
+        recipients = [data.test_phone]
+
+    if not recipients:
+        return TestWhatsAppResponse(ok=False, detail="No recipient phone numbers configured")
+
+    count = 0
+    for phone in recipients:
+        ok = await asyncio.to_thread(
+            whatsapp_service.send_whatsapp_test,
+            phone_number_id=phone_id,
+            access_token=token,
+            to=phone,
+            business_name=tenant.business_name
+        )
+        if ok:
+            count += 1
+
+    if count == 0:
+        return TestWhatsAppResponse(ok=False, detail="Failed to send test message. Check your credentials and template status.")
+    
+    return TestWhatsAppResponse(ok=True, delivered_to=count)
 
