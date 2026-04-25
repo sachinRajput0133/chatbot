@@ -644,16 +644,15 @@ interface WidgetConfig {
         try {
           const data = JSON.parse(event.data);
           if (data.id && seenMessageIds.has(data.id)) return;
-          if (data.id) seenMessageIds.add(data.id);
 
           if (data.role === "agent") {
-            appendMessage(data.content, "agent", messagesEl);
+            appendMessage(data.content, "agent", messagesEl, data.id);
           } else if (data.role === "assistant") {
             if (currentTypingIndicator) {
               currentTypingIndicator.remove();
               currentTypingIndicator = null;
             }
-            appendMessage(data.content, "bot", messagesEl);
+            appendMessage(data.content, "bot", messagesEl, data.id);
           }
         } catch (e) { }
       };
@@ -681,8 +680,6 @@ interface WidgetConfig {
       try {
         const { reply, messageId } = await sendMessage(text);
         if (!ws && conversationId) connectWebSocket(conversationId);
-
-        if (messageId) seenMessageIds.add(messageId);
 
         if (currentTypingIndicator) {
           currentTypingIndicator.remove();

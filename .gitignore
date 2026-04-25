@@ -40,3 +40,8 @@ Thumbs.db
 # ── Logs ─────────────────────────────────────────────────────────────────────
 *.log
 celerybeat-schedule
+
+# ── Playwright ────────────────────────────────────────────────────────────────
+playwright-report/
+test-results/
+apps/web/e2e/.auth/
