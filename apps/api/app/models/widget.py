@@ -37,6 +37,12 @@ class WidgetConfig(Base):
     suggested_questions: Mapped[list[str]] = mapped_column(
         postgresql.ARRAY(String), nullable=False, default=list, server_default="{}"
     )
+    calendly_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # Proactive Chat Triggers
+    proactive_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    proactive_delay: Mapped[int | None] = mapped_column(postgresql.INTEGER, nullable=True)
+    proactive_exit_intent: Mapped[bool] = mapped_column(postgresql.BOOLEAN, nullable=False, default=False, server_default="false")
 
     # Brand Voice fields — used to auto-generate system prompt when system_prompt is blank
     company_website: Mapped[str | None] = mapped_column(String(512), nullable=True)

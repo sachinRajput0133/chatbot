@@ -27,6 +27,10 @@ export default function CustomizePage() {
     unique_selling_proposition: "",
     suggested_questions: [] as string[],
     default_language: "en",
+    calendly_url: "",
+    proactive_message: "",
+    proactive_delay: 0,
+    proactive_exit_intent: false,
   });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -322,6 +326,74 @@ export default function CustomizePage() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* ── Integrations & Routing (collapsible) ── */}
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-6 py-4 bg-white hover:bg-gray-50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-orange-500" style={{ fontSize: "20px" }}>event_available</span>
+                  <div className="text-left flex-1">
+                    <p className="font-bold text-gray-900 text-sm">Booking Link</p>
+                    <p className="text-xs text-gray-400">Offer a Calendly or Cal.com link when users want to book a meeting.</p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <input
+                    type="url"
+                    {...field("calendly_url")}
+                    placeholder="https://calendly.com/your-name"
+                    className="w-full bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* ── Proactive Triggers ── */}
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-6 py-4 bg-white hover:bg-gray-50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-indigo-500" style={{ fontSize: "20px" }}>chat_bubble</span>
+                  <div className="text-left flex-1">
+                    <p className="font-bold text-gray-900 text-sm">Proactive Chat Triggers</p>
+                    <p className="text-xs text-gray-400">Pop open the chat automatically to engage visitors.</p>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-500">Proactive Message</label>
+                    <input
+                      type="text"
+                      {...field("proactive_message")}
+                      placeholder="e.g. Hi there! Can I help you find anything?"
+                      className="w-full bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-gray-500">Delay (seconds)</label>
+                      <input
+                        type="number"
+                        value={config.proactive_delay ?? 0}
+                        onChange={(e) => setConfig({ ...config, proactive_delay: parseInt(e.target.value) || 0 })}
+                        min={0}
+                        className="w-full bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all"
+                      />
+                    </div>
+                    <div className="flex items-center gap-3 pt-8">
+                      <input
+                        type="checkbox"
+                        checked={config.proactive_exit_intent}
+                        onChange={(e) => setConfig({ ...config, proactive_exit_intent: e.target.checked })}
+                        className="w-5 h-5 accent-indigo-600 rounded cursor-pointer"
+                      />
+                      <label className="text-sm font-bold text-gray-700 cursor-pointer" onClick={() => setConfig({ ...config, proactive_exit_intent: !config.proactive_exit_intent })}>
+                        Trigger on Exit Intent
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* ── Advanced: System Prompt (collapsible) ── */}

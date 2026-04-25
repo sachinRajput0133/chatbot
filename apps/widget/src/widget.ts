@@ -39,6 +39,10 @@ interface WidgetConfig {
   default_language?: string | null;
   lead_capture: LeadCaptureInfo;
   suggested_questions: string[];
+  calendly_url?: string;
+  proactive_message?: string;
+  proactive_delay?: number;
+  proactive_exit_intent?: boolean;
 }
 
 const i18n: Record<string, Record<string, string>> = {
@@ -713,6 +717,26 @@ const i18n: Record<string, Record<string, string>> = {
       }
     }
 
+    // Proactive Chat Triggers
+    let hasTriggeredProactive = false;
+    function triggerProactive() {
+      if (hasTriggeredProactive || isOpen) return;
+      hasTriggeredProactive = true;
+      bubble.click();
+      if (wc.proactive_message && !shouldShowLeadForm) {
+        appendMessage(wc.proactive_message, "bot", messagesEl);
+      }
+    }
+
+    if (wc.proactive_delay && wc.proactive_delay > 0) {
+      setTimeout(triggerProactive, wc.proactive_delay * 1000);
+    }
+    if (wc.proactive_exit_intent) {
+      document.addEventListener("mouseleave", (e) => {
+        if (e.clientY <= 0) triggerProactive();
+      });
+    }
+
     let ws: WebSocket | null = null;
     let selectedFile: File | null = null;
     let isUploading = false;
@@ -870,6 +894,12 @@ const i18n: Record<string, Record<string, string>> = {
     
     let displayHtml = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     displayHtml = displayHtml.replace(/\n/g, "<br>");
+    
+    // Parse Markdown links [text](url) into actual HTML links/buttons
+    displayHtml = displayHtml.replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, 
+      '<a href="$2" target="_blank" style="display:inline-block; margin-top:8px; padding:8px 16px; background-color:rgba(0,0,0,0.1); border-radius:16px; text-decoration:none; font-weight:bold; color:inherit;">$1</a>'
+    );
     
     if (attachmentUrl) {
       displayHtml += `<br><br><a href="${attachmentUrl.replace(/"/g, '&quot;')}" target="_blank" style="font-size:12px; text-decoration:underline; color: inherit;">[Attached File]</a>`;

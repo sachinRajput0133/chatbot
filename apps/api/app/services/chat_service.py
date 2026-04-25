@@ -88,6 +88,9 @@ def _build_system_prompt(widget: "WidgetConfig | None", business_name: str) -> s
     if widget and getattr(widget, "default_language", None):
         # We always append this to ensure the AI matches the widget/user language
         prompt += f"\n\nAlways respond in the visitor's language. Default language code: {widget.default_language}"
+
+    if widget and getattr(widget, "calendly_url", None):
+        prompt += f"\n\nIf the visitor wants to book a meeting, schedule a call, or requests a demo, proactively offer this booking link formatted exactly like this: [Book a Meeting]({widget.calendly_url})"
     else:
         prompt += "\n\nAlways respond in the visitor's language."
 

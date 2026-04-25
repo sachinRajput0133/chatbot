@@ -33,6 +33,10 @@ class WidgetConfigOut(BaseModel):
     system_prompt: str | None = None
     suggested_questions: list[str] = []
     default_language: str | None = "en"
+    calendly_url: str | None = None
+    proactive_message: str | None = None
+    proactive_delay: int | None = None
+    proactive_exit_intent: bool = False
     # Lead capture (included so widget knows what form to show)
     lead_capture: LeadCaptureInfo = LeadCaptureInfo()
 
@@ -49,6 +53,10 @@ class WidgetConfigUpdate(BaseModel):
     system_prompt: str | None = None
     suggested_questions: list[str] | None = None
     default_language: str | None = None
+    calendly_url: str | None = None
+    proactive_message: str | None = None
+    proactive_delay: int | None = None
+    proactive_exit_intent: bool | None = None
     # Brand Voice
     company_website: str | None = None
     company_email: str | None = None
