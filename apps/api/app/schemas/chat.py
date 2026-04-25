@@ -15,6 +15,7 @@ class ChatRequest(BaseModel):
     conversation_id: uuid.UUID | None = None
     page_url: str | None = None
     user_info: VisitorInfo | None = None
+    attachment_url: str | None = None
 
 
 class ChatResponse(BaseModel):

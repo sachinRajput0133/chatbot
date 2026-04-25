@@ -4,7 +4,11 @@ from sqlalchemy import String, DateTime, ForeignKey, Integer, Text, Enum as SAEn
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 import enum
+from typing import TYPE_CHECKING
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.tenant import Tenant
 
 
 class MessageRole(str, enum.Enum):
@@ -53,6 +57,7 @@ class WebMessage(Base):
     )
     role: Mapped[MessageRole] = mapped_column(SAEnum(MessageRole), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    attachment_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

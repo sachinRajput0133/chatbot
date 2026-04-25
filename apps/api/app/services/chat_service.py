@@ -289,6 +289,7 @@ async def handle_chat(
     conversation_id: uuid.UUID | None, page_url: str | None,
     db: AsyncSession,
     user_info: VisitorInfo | None = None,
+    attachment_url: str | None = None,
 ) -> tuple[str, uuid.UUID, uuid.UUID]:
 
     result = await db.execute(select(Tenant).where(Tenant.bot_id == bot_id))
@@ -357,7 +358,10 @@ async def handle_chat(
 
     # ── User message ──
     user_msg_id = uuid.uuid4()
-    db.add(WebMessage(id=user_msg_id, conversation_id=conv.id, role=MessageRole.user, content=message))
+    db.add(WebMessage(
+        id=user_msg_id, conversation_id=conv.id, role=MessageRole.user, 
+        content=message, attachment_url=attachment_url
+    ))
     await append_conversation_message(str(bot_id), visitor_id, "user", message)
     
     # Broadcast User message IMMEDIATELY so agents see it while AI is thinking
@@ -367,6 +371,7 @@ async def handle_chat(
         "id": str(user_msg_id), 
         "role": "user", 
         "content": message, 
+        "attachment_url": attachment_url,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await publish_to_conversation(str(conv.id), user_payload)
@@ -393,7 +398,11 @@ async def handle_chat(
     embedding = await _embed_query(search_query)
     context_chunks = await _retrieve_chunks(tenant.id, search_query, embedding, db)
 
-    messages = list(history) + [{"role": "user", "content": message}]
+    messages = list(history)
+    if attachment_url:
+        messages.append({"role": "user", "content": message + f"\n\n[Attached File: {attachment_url}]"})
+    else:
+        messages.append({"role": "user", "content": message})
     context_text = "\n\n---\n\n".join(context_chunks) if context_chunks else "No relevant context found."
     full_system = f"{system_prompt}\n\n<context>\n{context_text}\n</context>"
 

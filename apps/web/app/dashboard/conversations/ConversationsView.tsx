@@ -547,17 +547,25 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
 
                             {/* Bubble + timestamp */}
                             <div className={`space-y-2 flex flex-col ${isUser ? "items-end" : "items-start"} flex-1`}>
-                              <div
-                                className={`px-6 py-4 text-sm leading-relaxed ${isUser
-                                  ? "text-white rounded-[2rem] rounded-tr-none"
-                                  : isAgent
-                                    ? "text-white rounded-[2rem] rounded-tl-none bg-indigo-600 shadow-md"
-                                    : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
-                                  }`}
-                                style={isUser ? { backgroundColor: "#a93200" } : {}}
-                              >
-                                {msg.content}
-                              </div>
+                                <div
+                                  className={`px-6 py-4 text-sm leading-relaxed ${isUser
+                                    ? "text-white rounded-[2rem] rounded-tr-none"
+                                    : isAgent
+                                      ? "text-white rounded-[2rem] rounded-tl-none bg-indigo-600 shadow-md"
+                                      : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
+                                    }`}
+                                  style={isUser ? { backgroundColor: "#a93200" } : {}}
+                                >
+                                  {msg.content}
+                                  {msg.attachment_url && (
+                                    <div className="mt-2 pt-2 border-t border-white/20">
+                                      <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs font-medium hover:underline opacity-90">
+                                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>attach_file</span>
+                                        Attached File
+                                      </a>
+                                    </div>
+                                  )}
+                                </div>
                               <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">
                                 {isUser ? "Visitor" : isAgent ? "Human Agent" : "Bot"} · {formatTime(msg.created_at)}
                               </span>

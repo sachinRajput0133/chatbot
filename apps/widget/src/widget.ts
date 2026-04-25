@@ -186,7 +186,7 @@ const i18n: Record<string, Record<string, string>> = {
   }
 
   // ── Send message ───────────────────────────────────────────────────────────
-  async function sendMessage(message: string): Promise<{ reply: string; messageId: string }> {
+  async function sendMessage(message: string, attachmentUrl: string | null = null): Promise<{ reply: string; messageId: string }> {
     // Build user_info by merging window.ChatbotConfig.user (website owner identity)
     // with collectedLeadInfo from the pre-chat form. Form data takes precedence since
     // it was explicitly entered by this visitor.
@@ -201,6 +201,7 @@ const i18n: Record<string, Record<string, string>> = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
+        attachment_url: attachmentUrl,
         visitor_id: visitorId,
         conversation_id: conversationId || null,
         page_url: window.location.href,
@@ -526,8 +527,16 @@ const i18n: Record<string, Record<string, string>> = {
         <div id="cb-powered">
           <a href="#" target="_blank">${t("powered_by")}</a>
         </div>
-        <div id="cb-input-container" style="border-top: 1px solid #f3f4f6; flex-shrink: 0;">
+        <div id="cb-input-container" style="border-top: 1px solid #f3f4f6; flex-shrink: 0; background: white;">
+          <div id="cb-attachment-preview" style="display: none; padding: 8px 12px; font-size: 12px; color: #4b5563; background: #f9fafb; border-bottom: 1px solid #e5e7eb; align-items: center; justify-content: space-between;">
+            <span id="cb-attachment-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90%;"></span>
+            <button id="cb-attachment-clear" style="background:transparent; border:none; color:#ef4444; cursor:pointer;">&times;</button>
+          </div>
           <div id="cb-input-wrapper">
+            <button id="cb-attach" aria-label="Attach file" style="color: #9ca3af; padding: 4px; background: transparent; border: none; cursor: pointer; display: flex; align-items: center; margin-right: 4px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+            </button>
+            <input type="file" id="cb-file-input" style="display: none;" accept="image/*,application/pdf">
             <input type="text" id="cb-input" placeholder="${t("ask_anything")}" maxlength="1000">
             <button id="cb-send" aria-label="Send">
               <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 2L11 13"></path><path d="M22 2L15 22L11 13L2 9L22 2Z"></path></svg>
@@ -705,6 +714,56 @@ const i18n: Record<string, Record<string, string>> = {
     }
 
     let ws: WebSocket | null = null;
+    let selectedFile: File | null = null;
+    let isUploading = false;
+
+    const fileInput = document.getElementById("cb-file-input") as HTMLInputElement;
+    const attachBtn = document.getElementById("cb-attach") as HTMLButtonElement;
+    const attachmentPreview = document.getElementById("cb-attachment-preview")!;
+    const attachmentName = document.getElementById("cb-attachment-name")!;
+    const attachmentClear = document.getElementById("cb-attachment-clear")!;
+
+    attachBtn.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", (e) => {
+      const f = (e.target as HTMLInputElement).files?.[0];
+      if (f) {
+        if (f.size > 10 * 1024 * 1024) {
+          alert("File too large. Max 10MB");
+          fileInput.value = "";
+          return;
+        }
+        selectedFile = f;
+        attachmentName.textContent = f.name;
+        attachmentPreview.style.display = "flex";
+      }
+    });
+    attachmentClear.addEventListener("click", () => {
+      selectedFile = null;
+      fileInput.value = "";
+      attachmentPreview.style.display = "none";
+    });
+
+    async function uploadFile(file: File): Promise<string | null> {
+      try {
+        const presignRes = await fetch(`${API_URL}/api/chat/${BOT_ID}/upload-url`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, content_type: file.type, size: file.size })
+        });
+        if (!presignRes.ok) return null;
+        const { upload_url, file_url } = await presignRes.json();
+        
+        const uploadRes = await fetch(upload_url, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file
+        });
+        if (!uploadRes.ok) return null;
+        return file_url;
+      } catch {
+        return null;
+      }
+    }
 
     function connectWebSocket(convId: string) {
       if (ws) return;
@@ -717,13 +776,13 @@ const i18n: Record<string, Record<string, string>> = {
           if (data.id && seenMessageIds.has(data.id)) return;
 
           if (data.role === "agent") {
-            appendMessage(data.content, "agent", messagesEl, data.id);
+            appendMessage(data.content, "agent", messagesEl, data.id, data.attachment_url);
           } else if (data.role === "assistant") {
             if (currentTypingIndicator) {
               currentTypingIndicator.remove();
               currentTypingIndicator = null;
             }
-            appendMessage(data.content, "bot", messagesEl, data.id);
+            appendMessage(data.content, "bot", messagesEl, data.id, data.attachment_url);
           }
         } catch (e) { }
       };
@@ -734,17 +793,32 @@ const i18n: Record<string, Record<string, string>> = {
 
     async function doSubmit(presetText?: string) {
       const text = presetText ?? inputEl.value.trim();
-      if (!text || sendBtn.disabled) return;
-
-      if (!presetText) {
-        inputEl.value = "";
-      }
-      sendBtn.disabled = true;
+      if ((!text && !selectedFile) || sendBtn.disabled || isUploading) return;
 
       const sqWrapper = document.getElementById("cb-suggested");
       if (sqWrapper) sqWrapper.remove();
 
-      appendMessage(text, "user", messagesEl);
+      let attachmentUrl: string | null = null;
+      if (selectedFile) {
+        isUploading = true;
+        sendBtn.style.opacity = "0.5";
+        attachmentUrl = await uploadFile(selectedFile);
+        isUploading = false;
+        sendBtn.style.opacity = "1";
+        
+        if (!attachmentUrl) {
+          alert("Failed to upload file");
+          return;
+        }
+      }
+
+      if (!presetText) inputEl.value = "";
+      selectedFile = null;
+      fileInput.value = "";
+      attachmentPreview.style.display = "none";
+      sendBtn.disabled = true;
+
+      appendMessage(text || "Sent attachment", "user", messagesEl, undefined, attachmentUrl);
       if (currentTypingIndicator) currentTypingIndicator.remove();
       currentTypingIndicator = appendTyping(messagesEl);
 
@@ -782,7 +856,7 @@ const i18n: Record<string, Record<string, string>> = {
 
   }
 
-  function appendMessage(text: string, role: "user" | "bot" | "agent", container: HTMLElement, messageId?: string): HTMLElement {
+  function appendMessage(text: string, role: "user" | "bot" | "agent", container: HTMLElement, messageId?: string, attachmentUrl?: string | null): HTMLElement {
     if (messageId && seenMessageIds.has(messageId)) {
       // Find existing message with this ID if we want to replace, 
       // but for now we just return the existing one or null.
@@ -793,7 +867,15 @@ const i18n: Record<string, Record<string, string>> = {
 
     const div = document.createElement("div");
     div.className = `cb-msg cb-${role}`;
-    div.textContent = text;
+    
+    let displayHtml = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    displayHtml = displayHtml.replace(/\n/g, "<br>");
+    
+    if (attachmentUrl) {
+      displayHtml += `<br><br><a href="${attachmentUrl.replace(/"/g, '&quot;')}" target="_blank" style="font-size:12px; text-decoration:underline; color: inherit;">[Attached File]</a>`;
+    }
+    
+    div.innerHTML = displayHtml;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
     return div;

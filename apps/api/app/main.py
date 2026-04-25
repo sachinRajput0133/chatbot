@@ -93,6 +93,8 @@ app.add_middleware(
 )
 
 # ── Routers ───────────────────────────────────────────────────────────────────
+from app.routers import auth, knowledge, widget, chat, conversations, analytics, billing, static, ws, integrations, uploads
+
 app.include_router(auth.router)
 app.include_router(knowledge.router)
 app.include_router(widget.router)
@@ -105,6 +107,7 @@ app.include_router(platform_router.router)
 app.include_router(lead_capture_router.router)
 app.include_router(ws.router)
 app.include_router(integrations.router)
+app.include_router(uploads.router)
 
 
 @app.get("/health")

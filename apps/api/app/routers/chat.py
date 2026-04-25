@@ -82,6 +82,7 @@ async def save_visitor_contact(
 class HistoryMessage(BaseModel):
     role: str
     content: str
+    attachment_url: str | None = None
     created_at: datetime
 
 
@@ -121,7 +122,7 @@ async def get_chat_history(
     )
     messages = result.scalars().all()
     return [
-        HistoryMessage(role=m.role.value, content=m.content, created_at=m.created_at)
+        HistoryMessage(role=m.role.value, content=m.content, attachment_url=m.attachment_url, created_at=m.created_at)
         for m in messages
     ]
 
@@ -144,6 +145,7 @@ async def chat(
         page_url=data.page_url,
         db=db,
         user_info=data.user_info,
+        attachment_url=data.attachment_url,
     )
     return ChatResponse(reply=reply, message_id=message_id, conversation_id=conversation_id)
 
