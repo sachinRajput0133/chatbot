@@ -51,6 +51,7 @@ async def get_widget_config_public(bot_id: uuid.UUID, db: AsyncSession = Depends
             welcome_message="Hi! How can I help you today?",
             position="bottom-right",
             avatar_url=None,
+            default_language="en",
             lead_capture=lead_capture_info,
         )
 

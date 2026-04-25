@@ -117,8 +117,10 @@ export const api = {
     request<{
       gateway: string;
       checkout_url?: string;       // Stripe
-      subscription_id?: string;    // Razorpay
+      subscription_id?: string;    // Razorpay | Dodo
       key_id?: string;             // Razorpay
+      payment_link?: string;       // Dodo — hosted checkout redirect URL
+      client_secret?: string;      // Dodo — embedded checkout
     }>("/api/billing/checkout", {
       method: "POST",
       body: JSON.stringify({ plan }),
@@ -131,6 +133,16 @@ export const api = {
     plan: string;
   }) =>
     request<{ status: string; plan: string }>("/api/billing/verify-razorpay", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  verifyDodoPayment: (data: {
+    payment_id: string;
+    subscription_id: string;
+    plan: string;
+  }) =>
+    request<{ status: string; plan: string }>("/api/billing/verify-dodo", {
       method: "POST",
       body: JSON.stringify(data),
     }),

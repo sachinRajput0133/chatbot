@@ -170,25 +170,34 @@ export default function DashboardPage() {
             <h4 className="text-xl font-black">Performance Trends</h4>
             <select className="bg-gray-50 border-none rounded-lg text-xs font-bold px-4 py-2 outline-none text-gray-700">
               <option>Last 7 Days</option>
-              <option>Last 30 Days</option>
             </select>
           </div>
           <div className="h-64 flex items-end justify-between gap-2">
-            {[40, 65, 85, 55, 75, 45, 90].map((h, i) => (
-              <div
-                key={i}
-                className="flex-1 rounded-t-lg transition-all cursor-help relative group"
-                style={{
-                  height: `${h}%`,
-                  backgroundColor: i === 2 ? "#a93200" : "#e7e8e9",
-                }}
-              />
-            ))}
+            {(analytics?.performance_trends || Array(7).fill({messages: 0, date: ''})).map((d: any, i: number) => {
+              // Calculate percentage of max for height
+              const maxMessages = Math.max(...(analytics?.performance_trends?.map((t: any) => t.messages) || [1]));
+              const heightPct = Math.max((d.messages / (maxMessages || 1)) * 100, 5); // min 5% height for visibility
+              
+              return (
+                <div
+                  key={i}
+                  className="flex-1 rounded-t-lg transition-all cursor-help relative group"
+                  style={{
+                    height: `${heightPct}%`,
+                    backgroundColor: i === 6 ? "#a93200" : "#e7e8e9", // highlight current day
+                  }}
+                  title={`${d.messages} messages on ${new Date(d.date).toLocaleDateString(undefined, {weekday: 'short'})}`}
+                />
+              );
+            })}
           </div>
           <div className="flex justify-between mt-4 px-2">
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-              <span key={d} className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{d}</span>
-            ))}
+            {(analytics?.performance_trends || Array(7).fill({date: ''})).map((d: any, i: number) => {
+              const dayStr = d.date ? new Date(d.date).toLocaleDateString(undefined, {weekday: 'short'}) : '';
+              return (
+                <span key={i} className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{dayStr}</span>
+              );
+            })}
           </div>
         </div>
 

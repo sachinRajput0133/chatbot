@@ -151,3 +151,31 @@ class WhatsAppRecipientsConfig(BaseModel):
     phones: list[str] = Field(default_factory=list)
     max_recipients: int = 5
 
+
+# ── Zapier ────────────────────────────────────────────────────────────────────
+
+class ZapierIntegrationStatus(BaseModel):
+    configured: bool
+    masked_url: str | None = None
+
+
+class SetZapierWebhookRequest(BaseModel):
+    webhook_url: str = Field(..., max_length=512)
+
+    @field_validator("webhook_url")
+    @classmethod
+    def _must_be_url(cls, v: str) -> str:
+        v = v.strip()
+        if not v.startswith("http"):
+            raise ValueError("webhook_url must be a valid URL")
+        return v
+
+
+class TestZapierRequest(BaseModel):
+    webhook_url: str | None = None
+
+
+class TestZapierResponse(BaseModel):
+    ok: bool
+    detail: str | None = None
+

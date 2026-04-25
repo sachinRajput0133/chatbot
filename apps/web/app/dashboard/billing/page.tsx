@@ -143,6 +143,10 @@ function BillingPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const justPaid = searchParams.get("success") === "true";
+  const returnGateway = searchParams.get("gateway");      // "dodo" when returning from Dodo
+  const returnPaymentId = searchParams.get("payment_id");  // Dodo redirect param
+  const returnSubId = searchParams.get("subscription_id"); // Dodo redirect param
+  const returnPlan = searchParams.get("plan");             // Dodo redirect param
   const [me, setMe] = useState<any>(null);
   const [subscription, setSubscription] = useState<any>(null);
   const [loading, setLoading] = useState<string | null>(null);
@@ -163,6 +167,14 @@ function BillingPageInner() {
   useEffect(() => {
     loadData();
     if (justPaid) {
+      // If returning from a Dodo payment redirect, verify the subscription
+      if (returnGateway === "dodo" && returnPaymentId && returnSubId && returnPlan) {
+        api.verifyDodoPayment({
+          payment_id: returnPaymentId,
+          subscription_id: returnSubId,
+          plan: returnPlan,
+        }).catch(() => {/* still load data anyway */});
+      }
       const t = setTimeout(loadData, 2000);
       return () => clearTimeout(t);
     }
@@ -197,6 +209,11 @@ function BillingPageInner() {
           modal: { ondismiss: () => setLoading(null) },
         };
         new window.Razorpay(options).open();
+        return;
+      } else if (result.gateway === "dodo") {
+        // Dodo: redirect to hosted payment page
+        // Dodo will redirect back to: /dashboard/billing?success=true&gateway=dodo&payment_id=...&subscription_id=...&plan=...
+        window.location.href = result.payment_link!;
         return;
       }
     } catch (e: any) {

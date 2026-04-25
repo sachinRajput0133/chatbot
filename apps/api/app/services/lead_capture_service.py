@@ -126,3 +126,35 @@ def extract_contact_info(text: str) -> dict:
                 info["name"] = plain.title()
 
     return info
+
+
+async def notify_zapier_webhook(
+    *,
+    webhook_url: str,
+    business_name: str,
+    conversation_id: str,
+    name: str | None,
+    email: str | None,
+    phone: str | None,
+    message: str,
+) -> None:
+    """Push lead info to Zapier/Make webhook."""
+    import httpx
+    import logging
+    logger = logging.getLogger(__name__)
+
+    payload = {
+        "event": "lead_captured",
+        "business_name": business_name,
+        "conversation_id": conversation_id,
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "message": message,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(webhook_url, json=payload)
+    except Exception as e:
+        logger.warning(f"[Zapier] Failed to push lead for {conversation_id}: {e}")

@@ -5,7 +5,13 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.core.security import get_current_user_id
 from app.models.subscription import Subscription
-from app.schemas.billing import CreateCheckoutRequest, CheckoutResponse, SubscriptionOut, VerifyRazorpayRequest
+from app.schemas.billing import (
+    CreateCheckoutRequest,
+    CheckoutResponse,
+    SubscriptionOut,
+    VerifyRazorpayRequest,
+    VerifyDodoRequest,
+)
 from app.services import auth_service, billing_service
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
@@ -51,6 +57,8 @@ async def cancel_subscription(
     return {"status": "ok"}
 
 
+# ── Razorpay ──────────────────────────────────────────────────────────────────
+
 @router.post("/verify-razorpay")
 async def verify_razorpay_payment(
     data: VerifyRazorpayRequest,
@@ -62,17 +70,6 @@ async def verify_razorpay_payment(
     return {"status": "ok", "plan": data.plan}
 
 
-@router.post("/webhook/stripe", include_in_schema=False)
-async def stripe_webhook(
-    request: Request,
-    stripe_signature: str = Header(None, alias="stripe-signature"),
-    db: AsyncSession = Depends(get_db),
-):
-    payload = await request.body()
-    await billing_service.handle_stripe_webhook(payload, stripe_signature, db)
-    return {"status": "ok"}
-
-
 @router.post("/webhook/razorpay", include_in_schema=False)
 async def razorpay_webhook(
     request: Request,
@@ -81,4 +78,50 @@ async def razorpay_webhook(
 ):
     body = await request.body()
     await billing_service.handle_razorpay_webhook(body, x_razorpay_signature, db)
+    return {"status": "ok"}
+
+
+# ── Dodo Payments ─────────────────────────────────────────────────────────────
+
+@router.post("/verify-dodo")
+async def verify_dodo_payment(
+    data: VerifyDodoRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Called when Dodo redirects back to /dashboard/billing?success=true&gateway=dodo.
+    Frontend passes payment_id and subscription_id from the URL query params.
+    """
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    await billing_service.verify_and_activate_dodo(tenant, data, db)
+    return {"status": "ok", "plan": data.plan}
+
+
+@router.post("/webhook/dodo", include_in_schema=False)
+async def dodo_webhook(
+    request: Request,
+    webhook_id: str = Header(None, alias="webhook-id"),
+    webhook_signature: str = Header(None, alias="webhook-signature"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Dodo Payments webhook endpoint.
+    Dodo uses a webhook-signature header (HMAC-SHA256 of body + secret).
+    """
+    body = await request.body()
+    await billing_service.handle_dodo_webhook(body, webhook_signature, db)
+    return {"status": "ok"}
+
+
+# ── Stripe ────────────────────────────────────────────────────────────────────
+
+@router.post("/webhook/stripe", include_in_schema=False)
+async def stripe_webhook(
+    request: Request,
+    stripe_signature: str = Header(None, alias="stripe-signature"),
+    db: AsyncSession = Depends(get_db),
+):
+    payload = await request.body()
+    await billing_service.handle_stripe_webhook(payload, stripe_signature, db)
     return {"status": "ok"}

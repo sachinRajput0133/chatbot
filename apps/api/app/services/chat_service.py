@@ -81,9 +81,17 @@ def _build_system_prompt(widget: "WidgetConfig | None", business_name: str) -> s
             f"please contact us{f' at {widget.company_email}' if widget.company_email else ' directly'}.\" "
             "Keep responses concise and friendly. Do not make up information."
         )
-        return "\n".join(lines)
+        prompt = "\n".join(lines)
+    else:
+        prompt = DEFAULT_SYSTEM_PROMPT.format(business_name=business_name)
 
-    return DEFAULT_SYSTEM_PROMPT.format(business_name=business_name)
+    if widget and getattr(widget, "default_language", None):
+        # We always append this to ensure the AI matches the widget/user language
+        prompt += f"\n\nAlways respond in the visitor's language. Default language code: {widget.default_language}"
+    else:
+        prompt += "\n\nAlways respond in the visitor's language."
+
+    return prompt
 
 
 # ── Provider detection ─────────────────────────────────────────────────────────
@@ -318,12 +326,34 @@ async def handle_chat(
     # Extract contact info from the user's message and update conversation record
     if lead_config and lead_config.enabled:
         extracted = lead_capture_service.extract_contact_info(message)
+        lead_updated = False
         if extracted.get("name") and not conv.visitor_name:
             conv.visitor_name = extracted["name"]
+            lead_updated = True
         if extracted.get("email") and not conv.visitor_email:
             conv.visitor_email = extracted["email"]
+            lead_updated = True
         if extracted.get("phone") and not conv.visitor_phone:
             conv.visitor_phone = extracted["phone"]
+            lead_updated = True
+
+        if lead_updated and tenant.zapier_webhook_url:
+            from app.core.encryption import decrypt_secret, InvalidToken
+            try:
+                zapier_url = decrypt_secret(tenant.zapier_webhook_url)
+                asyncio.create_task(
+                    lead_capture_service.notify_zapier_webhook(
+                        webhook_url=zapier_url,
+                        business_name=tenant.business_name,
+                        conversation_id=str(conv.id),
+                        name=conv.visitor_name,
+                        email=conv.visitor_email,
+                        phone=conv.visitor_phone,
+                        message=message,
+                    )
+                )
+            except InvalidToken:
+                logger.warning(f"Invalid Zapier token for tenant {tenant.id}")
 
     # ── User message ──
     user_msg_id = uuid.uuid4()

@@ -32,6 +32,10 @@ from app.schemas.integrations import (
     TestWhatsAppRequest,
     TestWhatsAppResponse,
     WhatsAppRecipientsConfig,
+    ZapierIntegrationStatus,
+    SetZapierWebhookRequest,
+    TestZapierRequest,
+    TestZapierResponse,
 )
 from app.services import email_service, whatsapp_service
 
@@ -385,4 +389,90 @@ async def test_whatsapp_config(
         return TestWhatsAppResponse(ok=False, detail="Failed to send test message. Check your credentials and template status.")
     
     return TestWhatsAppResponse(ok=True, delivered_to=count)
+
+
+# ── Zapier ────────────────────────────────────────────────────────────────────
+
+@router.get("/zapier", response_model=ZapierIntegrationStatus)
+async def get_zapier_status(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    if not tenant.zapier_webhook_url:
+        return ZapierIntegrationStatus(configured=False)
+    
+    try:
+        url = decrypt_secret(tenant.zapier_webhook_url)
+    except InvalidToken:
+        return ZapierIntegrationStatus(configured=False)
+        
+    return ZapierIntegrationStatus(
+        configured=True,
+        masked_url=_mask(url)
+    )
+
+
+@router.put("/zapier", response_model=ZapierIntegrationStatus)
+async def set_zapier_webhook(
+    data: SetZapierWebhookRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    tenant.zapier_webhook_url = encrypt_secret(data.webhook_url)
+    await db.commit()
+    await db.refresh(tenant)
+    return ZapierIntegrationStatus(
+        configured=True,
+        masked_url=_mask(data.webhook_url)
+    )
+
+
+@router.delete("/zapier", status_code=204)
+async def delete_zapier_webhook(
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    tenant.zapier_webhook_url = None
+    await db.commit()
+
+
+@router.post("/zapier/test", response_model=TestZapierResponse)
+@limiter.limit("5/minute")
+async def test_zapier_webhook(
+    request: Request,
+    data: TestZapierRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+
+    url: str | None = data.webhook_url
+    if url is None:
+        if not tenant.zapier_webhook_url:
+            raise HTTPException(status_code=400, detail="Zapier webhook not configured")
+        try:
+            url = decrypt_secret(tenant.zapier_webhook_url)
+        except InvalidToken:
+            raise HTTPException(status_code=500, detail="Stored credentials unreadable")
+
+    payload = {
+        "test": True,
+        "message": f"Test payload from {tenant.business_name}",
+        "name": "Test User",
+        "email": "test@example.com",
+        "phone": "+1234567890",
+        "conversation_id": "test_conversation_123"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.post(url, json=payload)
+        if resp.status_code >= 400:
+            return TestZapierResponse(ok=False, detail=f"Webhook returned HTTP {resp.status_code}")
+        return TestZapierResponse(ok=True)
+    except httpx.HTTPError as e:
+        return TestZapierResponse(ok=False, detail=str(e))
 

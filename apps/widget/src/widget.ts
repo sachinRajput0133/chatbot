@@ -36,9 +36,73 @@ interface WidgetConfig {
   welcome_message: string;
   position: "bottom-right" | "bottom-left";
   avatar_url: string | null;
+  default_language?: string | null;
   lead_capture: LeadCaptureInfo;
   suggested_questions: string[];
 }
+
+const i18n: Record<string, Record<string, string>> = {
+  en: {
+    ask_anything: "Ask me anything...",
+    start_new: "Start a new chat",
+    end_chat: "End chat",
+    view_recent: "View recent chats",
+    recent_chats: "Recent chats",
+    no_recent: "No recent chats found.",
+    loading: "Loading...",
+    start_chat: "Start Chat",
+    skip: "Skip for now",
+    saving: "Saving...",
+    powered_by: "Powered by ChatBot AI",
+    failed_history: "Failed to load history.",
+    your_name: "Your Name",
+    email_addr: "Email Address",
+    phone_num: "Phone Number",
+    mailing_addr: "Mailing Address",
+    err_email: "Please enter a valid email address.",
+    err_generic: "Something went wrong. Please try again."
+  },
+  es: {
+    ask_anything: "Pregúntame cualquier cosa...",
+    start_new: "Iniciar nuevo chat",
+    end_chat: "Finalizar chat",
+    view_recent: "Ver chats recientes",
+    recent_chats: "Chats recientes",
+    no_recent: "No se encontraron chats recientes.",
+    loading: "Cargando...",
+    start_chat: "Iniciar chat",
+    skip: "Omitir por ahora",
+    saving: "Guardando...",
+    powered_by: "Desarrollado por ChatBot AI",
+    failed_history: "Error al cargar el historial.",
+    your_name: "Tu nombre",
+    email_addr: "Correo electrónico",
+    phone_num: "Número de teléfono",
+    mailing_addr: "Dirección postal",
+    err_email: "Ingresa un correo electrónico válido.",
+    err_generic: "Algo salió mal. Inténtalo de nuevo."
+  },
+  fr: {
+    ask_anything: "Posez-moi une question...",
+    start_new: "Nouvelle discussion",
+    end_chat: "Terminer la discussion",
+    view_recent: "Discussions récentes",
+    recent_chats: "Discussions récentes",
+    no_recent: "Aucune discussion récente.",
+    loading: "Chargement...",
+    start_chat: "Démarrer la discussion",
+    skip: "Passer pour l'instant",
+    saving: "Enregistrement...",
+    powered_by: "Propulsé par ChatBot AI",
+    failed_history: "Impossible de charger l'historique.",
+    your_name: "Votre nom",
+    email_addr: "Adresse e-mail",
+    phone_num: "Numéro de téléphone",
+    mailing_addr: "Adresse postale",
+    err_email: "Veuillez entrer un e-mail valide.",
+    err_generic: "Une erreur est survenue. Veuillez réessayer."
+  }
+};
 
 
 (function () {
@@ -112,6 +176,13 @@ interface WidgetConfig {
     const res = await fetch(`${API_URL}/api/widget-config/${BOT_ID}`);
     if (!res.ok) throw new Error("Failed to load bot config");
     return res.json();
+  }
+
+  function t(key: string): string {
+    const override = widgetConfig?.default_language;
+    let l = override && override !== "en" ? override : (navigator.language || "en").split("-")[0];
+    if (!i18n[l]) l = "en";
+    return i18n[l][key] || i18n["en"][key] || key;
   }
 
   // ── Send message ───────────────────────────────────────────────────────────
@@ -334,10 +405,10 @@ interface WidgetConfig {
     form.id = "cb-lead-form";
 
     const fields: { id: string; label: string; type: string; placeholder: string }[] = [];
-    if (lc.collect_name) fields.push({ id: "cb-lf-name", label: "Your Name", type: "text", placeholder: "Jane Smith" });
-    if (lc.collect_email) fields.push({ id: "cb-lf-email", label: "Email Address", type: "email", placeholder: "jane@example.com" });
-    if (lc.collect_phone) fields.push({ id: "cb-lf-phone", label: "Phone Number", type: "tel", placeholder: "+1 555 000 0000" });
-    if (lc.collect_address) fields.push({ id: "cb-lf-address", label: "Mailing Address", type: "text", placeholder: "123 Main St, City, State" });
+    if (lc.collect_name) fields.push({ id: "cb-lf-name", label: t("your_name"), type: "text", placeholder: "Jane Smith" });
+    if (lc.collect_email) fields.push({ id: "cb-lf-email", label: t("email_addr"), type: "email", placeholder: "jane@example.com" });
+    if (lc.collect_phone) fields.push({ id: "cb-lf-phone", label: t("phone_num"), type: "tel", placeholder: "+1 555 000 0000" });
+    if (lc.collect_address) fields.push({ id: "cb-lf-address", label: t("mailing_addr"), type: "text", placeholder: "123 Main St, City, State" });
 
     form.innerHTML = `
       <p class="cb-lf-title">${escHtml(lc.title)}</p>
@@ -351,8 +422,8 @@ interface WidgetConfig {
         `).join("")}
       </div>
       <span class="cb-lf-error" style="display:none"></span>
-      <button class="cb-lf-submit">Start Chat</button>
-      <button class="cb-lf-skip">Skip for now</button>
+      <button class="cb-lf-submit">${t("start_chat")}</button>
+      <button class="cb-lf-skip">${t("skip")}</button>
     `;
 
     const submitBtn = form.querySelector(".cb-lf-submit") as HTMLButtonElement;
@@ -367,14 +438,14 @@ interface WidgetConfig {
 
       // Basic validation — require at least one field filled
       if (lc.collect_email && emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
-        errorEl.textContent = "Please enter a valid email address.";
+        errorEl.textContent = t("err_email");
         errorEl.style.display = "";
         return;
       }
       errorEl.style.display = "none";
 
       submitBtn.disabled = true;
-      submitBtn.textContent = "Saving...";
+      submitBtn.textContent = t("saving");
 
       try {
         const convId = await submitContact(nameVal, emailVal, phoneVal, addressVal);
@@ -435,15 +506,15 @@ interface WidgetConfig {
             <div id="cb-menu">
               <button class="cb-menu-item" id="cb-mi-new">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                Start a new chat
+                ${t("start_new")}
               </button>
               <button class="cb-menu-item" id="cb-mi-end" style="color: #ef4444;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                End chat
+                ${t("end_chat")}
               </button>
               <button class="cb-menu-item" id="cb-mi-history">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                View recent chats
+                ${t("view_recent")}
               </button>
             </div>
             <button onclick="document.getElementById('cb-panel').classList.add('cb-hidden')" aria-label="Close">
@@ -453,11 +524,11 @@ interface WidgetConfig {
         </div>
         <div id="cb-messages"></div>
         <div id="cb-powered">
-          <a href="#" target="_blank">Powered by ChatBot AI</a>
+          <a href="#" target="_blank">${t("powered_by")}</a>
         </div>
         <div id="cb-input-container" style="border-top: 1px solid #f3f4f6; flex-shrink: 0;">
           <div id="cb-input-wrapper">
-            <input type="text" id="cb-input" placeholder="Ask me anything..." maxlength="1000">
+            <input type="text" id="cb-input" placeholder="${t("ask_anything")}" maxlength="1000">
             <button id="cb-send" aria-label="Send">
               <svg fill="none" height="14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M22 2L11 13"></path><path d="M22 2L15 22L11 13L2 9L22 2Z"></path></svg>
             </button>
@@ -468,7 +539,7 @@ interface WidgetConfig {
             <button id="cb-hi-back" aria-label="Back">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
-            <div style="font-weight:600; font-size:14px; flex:1; text-align:center;">Recent chats</div>
+            <div style="font-weight:600; font-size:14px; flex:1; text-align:center;">${t("recent_chats")}</div>
             <button onclick="document.getElementById('cb-panel').classList.add('cb-hidden')" aria-label="Close">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg>
             </button>
@@ -477,7 +548,7 @@ interface WidgetConfig {
           <div id="cb-history-footer">
             <button class="cb-new-chat-btn" id="cb-hi-new">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" x2="12" y1="5" y2="19"></line><line x1="5" x2="19" y1="12" y2="12"></line></svg>
-              Start a new chat
+              ${t("start_new")}
             </button>
           </div>
         </div>
@@ -569,7 +640,7 @@ interface WidgetConfig {
           hiList.appendChild(item);
         });
       } catch (e) {
-        hiList.innerHTML = `<div style="text-align:center; padding: 20px; color: #ef4444; font-size: 13px;">Failed to load history.</div>`;
+        hiList.innerHTML = `<div style="text-align:center; padding: 20px; color: #ef4444; font-size: 13px;">\${t("failed_history")}</div>`;
       }
     });
 
@@ -694,7 +765,7 @@ interface WidgetConfig {
           currentTypingIndicator.remove();
           currentTypingIndicator = null;
         }
-        appendMessage(e.message || "Something went wrong. Please try again.", "bot", messagesEl);
+        appendMessage(e.message || t("err_generic"), "bot", messagesEl);
       } finally {
         sendBtn.disabled = false;
         inputEl.focus();

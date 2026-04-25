@@ -52,6 +52,8 @@ class Tenant(Base):
     whatsapp_access_token: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # Up to 5 E.164 phone numbers that receive WhatsApp alert messages.
     whatsapp_recipient_phones: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    # Zapier webhook URL for CRM integration
+    zapier_webhook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

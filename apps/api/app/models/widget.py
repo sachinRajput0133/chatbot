@@ -4,7 +4,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID
 import enum
+from typing import TYPE_CHECKING
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.tenant import Tenant
 
 
 class WidgetPosition(str, enum.Enum):
@@ -45,5 +49,6 @@ class WidgetConfig(Base):
     brand_values: Mapped[str | None] = mapped_column(Text, nullable=True)
     what_we_do: Mapped[str | None] = mapped_column(Text, nullable=True)
     unique_selling_proposition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    default_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="widget_config")

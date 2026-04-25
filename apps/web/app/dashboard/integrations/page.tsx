@@ -16,6 +16,10 @@ import {
   useWhatsappRecipientsQuery,
   useSetWhatsAppRecipientsMutation,
   useTestWhatsAppMutation,
+  useZapierStatusQuery,
+  useSetZapierWebhookMutation,
+  useDeleteZapierWebhookMutation,
+  useTestZapierWebhookMutation,
 } from "@/lib/api";
 
 type Banner = { type: "success" | "error"; text: string } | null;
@@ -193,6 +197,8 @@ export default function IntegrationsPage() {
           </form>
         )}
       </section>
+
+      <ZapierIntegrationCard />
 
       <AlertKeywordsCard />
 
@@ -900,6 +906,151 @@ function WhatsAppNotificationsCard() {
              </button>
           </div>
         </div>
+      )}
+    </section>
+  );
+}
+
+function ZapierIntegrationCard() {
+  const { data: status, isLoading } = useZapierStatusQuery();
+  const [setWebhook, { isLoading: saving }] = useSetZapierWebhookMutation();
+  const [deleteWebhook, { isLoading: deleting }] = useDeleteZapierWebhookMutation();
+  const [testWebhook, { isLoading: testing }] = useTestZapierWebhookMutation();
+
+  const [url, setUrl] = useState("");
+  const [banner, setBanner] = useState<Banner>(null);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setBanner(null);
+    try {
+      await setWebhook({ webhook_url: url.trim() }).unwrap();
+      setBanner({ type: "success", text: "Zapier webhook saved." });
+      setUrl("");
+    } catch (err: unknown) {
+      const msg = (err as { data?: { detail?: string | { msg?: string }[] } })?.data?.detail;
+      const text = typeof msg === "string" ? msg : Array.isArray(msg) ? msg[0]?.msg ?? "Failed to save" : "Failed to save";
+      setBanner({ type: "error", text });
+    }
+  }
+
+  async function handleTest(useTyped: boolean) {
+    setBanner(null);
+    try {
+      const body = useTyped ? { webhook_url: url.trim() } : {};
+      const result = await testWebhook(body).unwrap();
+      if (result.ok) {
+        setBanner({ type: "success", text: "Test webhook sent successfully." });
+      } else {
+        setBanner({ type: "error", text: result.detail ?? "Webhook test failed." });
+      }
+    } catch (err: unknown) {
+      const msg = (err as { data?: { detail?: string } })?.data?.detail ?? "Test failed";
+      setBanner({ type: "error", text: msg });
+    }
+  }
+
+  async function handleDisconnect() {
+    setBanner(null);
+    if (!confirm("Disconnect Zapier? Your captured leads will no longer be pushed to your CRM.")) return;
+    try {
+      await deleteWebhook().unwrap();
+      setBanner({ type: "success", text: "Zapier disconnected." });
+    } catch {
+      setBanner({ type: "error", text: "Failed to disconnect." });
+    }
+  }
+
+  if (isLoading) return null;
+
+  return (
+    <section className="bg-white border border-gray-200 rounded-xl p-6 mt-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-lg bg-[#FF4F00] text-white flex items-center justify-center font-bold text-xl">
+          Z
+        </div>
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold text-gray-900">Zapier / Make (CRM Integration)</h2>
+          <p className="text-sm text-gray-500">
+            Push captured leads (name, email, phone) directly into your CRM via Zapier or Make webhooks.
+          </p>
+        </div>
+        {status?.configured && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Connected
+          </span>
+        )}
+      </div>
+
+      {banner && (
+        <div className={`mb-6 px-4 py-3 rounded-lg text-sm ${banner.type === "success" ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+          {banner.text}
+        </div>
+      )}
+
+      {status?.configured ? (
+        <div className="space-y-4">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 flex items-center justify-between">
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide">Connected Webhook URL</div>
+              <code className="text-sm text-gray-800 font-mono">{status.masked_url}</code>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => handleTest(false)}
+              disabled={testing}
+              className="px-4 py-2 rounded-lg bg-[#FF4F00] text-white text-sm font-medium hover:bg-[#e64700] disabled:opacity-50"
+            >
+              {testing ? "Sending..." : "Send test event"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              disabled={deleting}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {deleting ? "Disconnecting..." : "Disconnect"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <form onSubmit={handleSave} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Zapier / Make Webhook URL
+            </label>
+            <input
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://hooks.zapier.com/hooks/catch/..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#FF4F00]"
+              required
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Create a Catch Hook in Zapier and paste the URL here. We'll POST the lead details (name, email, phone, message).
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={saving || !url.trim()}
+              className="px-4 py-2 rounded-lg bg-[#FF4F00] text-white text-sm font-medium hover:bg-[#e64700] disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save Connection"}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTest(true)}
+              disabled={testing || !url.trim().startsWith("http")}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {testing ? "Testing..." : "Test without saving"}
+            </button>
+          </div>
+        </form>
       )}
     </section>
   );

@@ -50,6 +50,16 @@ export interface WhatsAppRecipientsConfig {
   max_recipients: number;
 }
 
+export interface ZapierIntegrationStatus {
+  configured: boolean;
+  masked_url: string | null;
+}
+
+export interface TestZapierResponse {
+  ok: boolean;
+  detail: string | null;
+}
+
 export const integrationsApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     slackStatus: build.query<SlackIntegrationStatus, void>({
@@ -109,6 +119,21 @@ export const integrationsApi = baseApi.injectEndpoints({
     testWhatsApp: build.mutation<TestWhatsAppResponse, { phone_number_id?: string; access_token?: string; test_phone?: string }>({
       query: (body) => ({ url: "/api/integrations/whatsapp/test", method: "POST", body }),
     }),
+    zapierStatus: build.query<ZapierIntegrationStatus, void>({
+      query: () => "/api/integrations/zapier",
+      providesTags: ["Integrations"],
+    }),
+    setZapierWebhook: build.mutation<ZapierIntegrationStatus, { webhook_url: string }>({
+      query: (body) => ({ url: "/api/integrations/zapier", method: "PUT", body }),
+      invalidatesTags: ["Integrations"],
+    }),
+    deleteZapierWebhook: build.mutation<void, void>({
+      query: () => ({ url: "/api/integrations/zapier", method: "DELETE" }),
+      invalidatesTags: ["Integrations"],
+    }),
+    testZapierWebhook: build.mutation<TestZapierResponse, { webhook_url?: string }>({
+      query: (body) => ({ url: "/api/integrations/zapier/test", method: "POST", body }),
+    }),
   }),
 });
 
@@ -128,4 +153,8 @@ export const {
   useWhatsappRecipientsQuery,
   useSetWhatsAppRecipientsMutation,
   useTestWhatsAppMutation,
+  useZapierStatusQuery,
+  useSetZapierWebhookMutation,
+  useDeleteZapierWebhookMutation,
+  useTestZapierWebhookMutation,
 } = integrationsApi;

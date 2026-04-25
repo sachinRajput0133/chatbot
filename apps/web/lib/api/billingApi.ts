@@ -13,6 +13,10 @@ export interface Subscription {
 export interface CheckoutResponse {
   checkout_url: string;
   gateway: string;
+  subscription_id?: string;  // Razorpay
+  key_id?: string;           // Razorpay
+  payment_link?: string;     // Dodo
+  client_secret?: string;    // Dodo embedded
 }
 
 export const billingApi = baseApi.injectEndpoints({

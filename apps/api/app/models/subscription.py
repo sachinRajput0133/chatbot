@@ -17,6 +17,7 @@ class SubscriptionStatus(str, enum.Enum):
 class PaymentGateway(str, enum.Enum):
     stripe = "stripe"
     razorpay = "razorpay"
+    dodo = "dodo"
 
 
 class Subscription(Base):

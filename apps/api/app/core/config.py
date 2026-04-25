@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     STRIPE_GROWTH_PRICE_ID: str = ""
     STRIPE_ENTERPRISE_PRICE_ID: str = ""
 
+    # Payment gateway selector: "razorpay" | "dodo"
+    # razorpay → India tenants use Razorpay, others use Stripe (existing default)
+    # dodo     → all tenants use Dodo Payments regardless of country
+    PAYMENT_GATEWAY: str = "razorpay"
+
     # Razorpay (India)
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
@@ -52,6 +57,13 @@ class Settings(BaseSettings):
     RAZORPAY_STARTER_PLAN_ID: str = ""
     RAZORPAY_GROWTH_PLAN_ID: str = ""
     RAZORPAY_ENTERPRISE_PLAN_ID: str = ""
+
+    # Dodo Payments (Global alternative)
+    DODO_API_KEY: str = ""
+    DODO_WEBHOOK_SECRET: str = ""
+    DODO_STARTER_PRODUCT_ID: str = ""
+    DODO_GROWTH_PRODUCT_ID: str = ""
+    DODO_ENTERPRISE_PRODUCT_ID: str = ""
 
     # Email
     RESEND_API_KEY: str = ""

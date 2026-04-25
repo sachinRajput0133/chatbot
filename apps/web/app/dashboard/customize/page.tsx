@@ -26,6 +26,7 @@ export default function CustomizePage() {
     what_we_do: "",
     unique_selling_proposition: "",
     suggested_questions: [] as string[],
+    default_language: "en",
   });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -112,23 +113,36 @@ export default function CustomizePage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-gray-500 ml-1">Brand Color</label>
-                <div className="flex items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={() => colorInputRef.current?.click()}
-                    className="w-12 h-12 rounded-xl flex items-center justify-center cursor-pointer hover:scale-105 transition-transform shadow-md shrink-0"
-                    style={{ backgroundColor: config.primary_color }}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-gray-500 ml-1">Default Language</label>
+                  <select
+                    {...field("default_language")}
+                    className="w-full bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all"
                   >
-                    <span className="material-symbols-outlined text-white" style={{ fontSize: "20px" }}>colorize</span>
-                  </button>
-                  <input ref={colorInputRef} type="color" {...field("primary_color")} className="sr-only" />
-                  <input
-                    type="text"
-                    {...field("primary_color")}
-                    className="flex-1 bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-mono font-medium outline-none transition-all"
-                  />
+                    <option value="en">English (Default)</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-gray-500 ml-1">Brand Color</label>
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => colorInputRef.current?.click()}
+                      className="w-12 h-12 rounded-xl flex items-center justify-center cursor-pointer hover:scale-105 transition-transform shadow-md shrink-0"
+                      style={{ backgroundColor: config.primary_color }}
+                    >
+                      <span className="material-symbols-outlined text-white" style={{ fontSize: "20px" }}>colorize</span>
+                    </button>
+                    <input ref={colorInputRef} type="color" {...field("primary_color")} className="sr-only" />
+                    <input
+                      type="text"
+                      {...field("primary_color")}
+                      className="flex-1 bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-mono font-medium outline-none transition-all"
+                    />
+                  </div>
                 </div>
               </div>
 
