@@ -42,3 +42,7 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(bear
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     return user_id
+
+
+# Alias for backward compatibility while debugging import errors
+get_current_user = get_current_user_id

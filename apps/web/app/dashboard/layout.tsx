@@ -15,6 +15,7 @@ const NAV = [
   { href: "/dashboard/lead-capture", label: "Lead Capture", icon: "person_add" },
   { href: "/dashboard/goals", label: "Bot Goals", icon: "track_changes" },
   { href: "/dashboard/embed", label: "Embed Code", icon: "code" },
+  { href: "/dashboard/developer", label: "Developer API", icon: "api" },
   { href: "/dashboard/conversations", label: "Conversations", icon: "forum" },
   { href: "/dashboard/analytics", label: "Analytics", icon: "insights" },
   { href: "/dashboard/integrations", label: "Integrations", icon: "hub" },

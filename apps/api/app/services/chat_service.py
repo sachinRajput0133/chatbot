@@ -117,15 +117,15 @@ def _active_provider() -> str:
     )
 
 
-async def _call_ai(messages: list[dict], system: str) -> tuple[str, int]:
+async def _call_ai(messages: list[dict], system: str, ai_provider: str | None = None, ai_model: str | None = None) -> tuple[str, int]:
     """Call the active AI provider. Returns (reply, tokens_used)."""
-    provider = _active_provider()
+    provider = ai_provider or _active_provider()
 
     if provider == "groq":
         from groq import AsyncGroq
         client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         response = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=ai_model or "llama-3.3-70b-versatile",
             messages=[{"role": "system", "content": system}] + messages,
             max_tokens=1024,
             temperature=0.3,
@@ -138,7 +138,7 @@ async def _call_ai(messages: list[dict], system: str) -> tuple[str, int]:
         import anthropic
         client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
         response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=ai_model or "claude-haiku-4-5-20251001",
             max_tokens=1024,
             system=system,
             messages=messages,
@@ -151,7 +151,7 @@ async def _call_ai(messages: list[dict], system: str) -> tuple[str, int]:
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=ai_model or "gpt-4o-mini",
             messages=[{"role": "system", "content": system}] + messages,
             max_tokens=1024,
         )
@@ -163,7 +163,7 @@ async def _call_ai(messages: list[dict], system: str) -> tuple[str, int]:
         import asyncio
         import google.generativeai as genai
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel(ai_model or "gemini-2.0-flash")
         prompt = system + "\n\n" + "\n".join(f"{m['role']}: {m['content']}" for m in messages)
         response = await asyncio.to_thread(model.generate_content, prompt)
         return response.text, 0
@@ -175,7 +175,7 @@ async def _call_ai(messages: list[dict], system: str) -> tuple[str, int]:
                 "https://api.x.ai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {settings.GROK_API_KEY}", "Content-Type": "application/json"},
                 json={
-                    "model": "grok-3-mini",
+                    "model": ai_model or "grok-3-mini",
                     "messages": [{"role": "system", "content": system}] + messages,
                     "max_tokens": 1024,
                     "temperature": 0,
@@ -187,14 +187,14 @@ async def _call_ai(messages: list[dict], system: str) -> tuple[str, int]:
     raise HTTPException(status_code=500, detail="No AI provider available")
 
 
-async def _rephrase_query(history: list[dict], message: str) -> str:
+async def _rephrase_query(history: list[dict], message: str, ai_provider: str | None = None, ai_model: str | None = None) -> str:
     """Use AI to rephrase the latest message into a standalone search query if needed."""
     if len(message.split()) > 10:
         return message  # Probably detailed enough
 
     rephrase_messages = history + [{"role": "user", "content": message}]
     try:
-        query, _ = await _call_ai(rephrase_messages, REPHRASE_PROMPT)
+        query, _ = await _call_ai(rephrase_messages, REPHRASE_PROMPT, ai_provider, ai_model)
         return query.strip().strip('"')
     except Exception:
         return message  # Fallback to original
@@ -400,7 +400,11 @@ async def handle_chat(
 
     # ── AI Reply ──
     history = await get_conversation_history(str(bot_id), visitor_id)
-    search_query = await _rephrase_query(list(history), message)
+    search_query = await _rephrase_query(
+        list(history), message, 
+        ai_provider=widget.ai_provider if widget else None, 
+        ai_model=widget.ai_model if widget else None
+    )
     
     embedding = await _embed_query(search_query)
     context_chunks = await _retrieve_chunks(tenant.id, search_query, embedding, db)
@@ -414,7 +418,11 @@ async def handle_chat(
     full_system = f"{system_prompt}\n\n<context>\n{context_text}\n</context>"
 
     try:
-        reply, tokens_used = await _call_ai(messages, full_system)
+        reply, tokens_used = await _call_ai(
+            messages, full_system, 
+            ai_provider=widget.ai_provider if widget else None, 
+            ai_model=widget.ai_model if widget else None
+        )
     except Exception as exc:
         logger.exception(f"[AI Escalation] Provider failed for conversation {conv.id}: {exc}")
         return await _escalate_to_human(

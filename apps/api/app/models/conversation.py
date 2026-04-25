@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, DateTime, ForeignKey, Integer, Text, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from typing import TYPE_CHECKING
@@ -41,6 +42,9 @@ class WebConversation(Base):
     last_read_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    
+    # Tagging & Labels
+    tags: Mapped[list[str]] = mapped_column(postgresql.ARRAY(String(50)), nullable=False, default=list, server_default="{}")
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="conversations")
     messages: Mapped[list["WebMessage"]] = relationship(

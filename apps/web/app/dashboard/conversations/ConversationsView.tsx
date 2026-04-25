@@ -729,17 +729,65 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
 
               {/* Tags */}
               <div className="space-y-3">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tags</label>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tags & Labels</label>
                 <div className="flex flex-wrap gap-2">
-                  <span className="px-3 py-1.5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-black uppercase tracking-widest border border-orange-200">
-                    Web Chat
-                  </span>
+                  {/* System Tags (Auto) */}
                   <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${selected.visitor_name || selected.visitor_email
                     ? "bg-green-100 text-green-700 border border-green-200"
                     : "bg-gray-200 text-gray-600"
                     }`}>
                     {selected.visitor_name || selected.visitor_email ? "Identified" : "Anonymous"}
                   </span>
+
+                  {/* Custom User Tags */}
+                  {(selected.tags || []).map((tag: string) => (
+                    <span key={tag} className="group px-3 py-1.5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-black uppercase tracking-widest border border-orange-200 flex items-center gap-1.5">
+                      {tag}
+                      <button
+                        onClick={async () => {
+                          const newTags = selected.tags.filter((t: string) => t !== tag);
+                          const updated = await api.updateConversationTags(selected.id, newTags);
+                          setSelected(updated);
+                          setConversations(prev => prev.map(c => c.id === updated.id ? { ...c, tags: updated.tags } : c));
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600"
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>close</span>
+                      </button>
+                    </span>
+                  ))}
+                </div>
+
+                {/* Add Tag Input */}
+                <div className="pt-2">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Add tag..."
+                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-orange-500 transition-all pr-10"
+                      onKeyDown={async (e) => {
+                        if (e.key === "Enter") {
+                          const val = e.currentTarget.value.trim();
+                          if (!val) return;
+                          if ((selected.tags || []).includes(val)) return;
+                          
+                          e.currentTarget.value = "";
+                          const newTags = [...(selected.tags || []), val];
+                          try {
+                            const updated = await api.updateConversationTags(selected.id, newTags);
+                            setSelected(updated);
+                            setConversations(prev => prev.map(c => c.id === updated.id ? { ...c, tags: updated.tags } : c));
+                          } catch (err) {
+                            console.error(err);
+                          }
+                        }
+                      }}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-300" style={{ fontSize: "18px" }}>
+                      add_circle
+                    </span>
+                  </div>
+                  <p className="text-[9px] text-gray-400 mt-2 ml-1">Press Enter to add label</p>
                 </div>
               </div>
             </div>

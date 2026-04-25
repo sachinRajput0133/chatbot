@@ -111,6 +111,12 @@ export const api = {
   markAsRead: (conversationId: string) =>
     request<void>(`/api/conversations/${conversationId}/read`, { method: "POST" }),
 
+  updateConversationTags: (conversationId: string, tags: string[]) =>
+    request<any>(`/api/conversations/${conversationId}/tags`, {
+      method: "PUT",
+      body: JSON.stringify({ tags }),
+    }),
+
   getAnalytics: () => request<any>("/api/analytics/summary"),
 
   createCheckout: (plan: string) =>
@@ -160,6 +166,15 @@ export const api = {
     }),
   deleteGoal: (goalId: string) =>
     request<{ status: string }>(`/api/goals/${goalId}`, { method: "DELETE" }),
+
+  getApiKeys: () => request<any[]>("/api/api-keys"),
+  createApiKey: (data: { name: string }) =>
+    request<any>("/api/api-keys", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteApiKey: (keyId: string) =>
+    request<{ status: string }>(`/api/api-keys/${keyId}`, { method: "DELETE" }),
 };
 
 /** Save token to localStorage + Redux store (if available) */

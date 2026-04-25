@@ -44,6 +44,17 @@ class WidgetConfig(Base):
     proactive_delay: Mapped[int | None] = mapped_column(postgresql.INTEGER, nullable=True)
     proactive_exit_intent: Mapped[bool] = mapped_column(postgresql.BOOLEAN, nullable=False, default=False, server_default="false")
 
+    # AI Model Selection
+    ai_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="openai", server_default="'openai'")
+    ai_model: Mapped[str] = mapped_column(String(100), nullable=False, default="gpt-4o-mini", server_default="'gpt-4o-mini'")
+
+    # Conversation Continuity
+    email_followup_enabled: Mapped[bool] = mapped_column(postgresql.BOOLEAN, nullable=False, default=True, server_default="true")
+    email_followup_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Styling
+    theme: Mapped[str] = mapped_column(String(20), nullable=False, default="light", server_default="'light'")
+
     # Brand Voice fields — used to auto-generate system prompt when system_prompt is blank
     company_website: Mapped[str | None] = mapped_column(String(512), nullable=True)
     company_email: Mapped[str | None] = mapped_column(String(256), nullable=True)

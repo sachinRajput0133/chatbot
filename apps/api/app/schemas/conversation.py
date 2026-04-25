@@ -42,9 +42,15 @@ class ConversationOut(BaseModel):
     last_read_at: datetime | None = None
     is_unread: bool = False
     unread_count: int = 0
+    tags: list[str] = []
 
     class Config:
         from_attributes = True
+
+
+class UpdateTagsIn(BaseModel):
+    tags: list[str]
+
 
 
 class AgentReplyIn(BaseModel):

@@ -5,10 +5,11 @@ import uuid
 from typing import List
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user_id
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.goal import GoalConfig, GoalCompletion, GoalType
+from app.services import auth_service
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -25,19 +26,14 @@ class GoalResponse(GoalCreate):
     created_at: datetime
     completion_count: int = 0
 
-async def get_tenant(user: User, db: AsyncSession) -> Tenant:
-    result = await db.execute(select(Tenant).where(Tenant.owner_id == user.id))
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Tenant not found")
-    return tenant
+
 
 @router.get("", response_model=List[GoalResponse])
 async def list_goals(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user)
+    user_id: str = Depends(get_current_user_id)
 ):
-    tenant = await get_tenant(user, db)
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
     
     # Fetch goals and their completion counts
     query = select(GoalConfig).where(GoalConfig.tenant_id == tenant.id).order_by(GoalConfig.created_at.desc())
@@ -66,9 +62,9 @@ async def list_goals(
 async def create_goal(
     goal_in: GoalCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user)
+    user_id: str = Depends(get_current_user_id)
 ):
-    tenant = await get_tenant(user, db)
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
     
     goal = GoalConfig(
         tenant_id=tenant.id,
@@ -95,9 +91,9 @@ async def create_goal(
 async def delete_goal(
     goal_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user)
+    user_id: str = Depends(get_current_user_id)
 ):
-    tenant = await get_tenant(user, db)
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
     
     result = await db.execute(
         select(GoalConfig).where(GoalConfig.id == goal_id, GoalConfig.tenant_id == tenant.id)

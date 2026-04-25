@@ -31,6 +31,11 @@ export default function CustomizePage() {
     proactive_message: "",
     proactive_delay: 0,
     proactive_exit_intent: false,
+    ai_provider: "openai",
+    ai_model: "gpt-4o-mini",
+    email_followup_enabled: true,
+    email_followup_subject: "",
+    theme: "light",
   });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -158,6 +163,29 @@ export default function CustomizePage() {
                   className="w-full bg-white border border-gray-200 focus:border-indigo-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all resize-none"
                 />
               </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-gray-500 ml-1">Widget Theme</label>
+                <div className="flex gap-4">
+                  {['light', 'dark', 'auto'].map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setConfig({ ...config, theme: t })}
+                      className={`flex-1 flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all ${
+                        config.theme === t
+                          ? 'border-indigo-600 bg-indigo-50'
+                          : 'border-gray-100 bg-white hover:border-gray-200'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-gray-500">
+                        {t === 'light' ? 'light_mode' : t === 'dark' ? 'dark_mode' : 'hdr_auto'}
+                      </span>
+                      <span className="text-xs font-bold capitalize text-gray-700">{t}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="space-y-4 pt-4 border-t border-gray-200">
                 <div className="flex items-center justify-between">
                   <label className="text-sm font-bold text-gray-500 ml-1">Suggested Questions</label>
@@ -391,6 +419,117 @@ export default function CustomizePage() {
                         Trigger on Exit Intent
                       </label>
                     </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* ── Conversation Continuity ── */}
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-6 py-4 bg-white hover:bg-gray-50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-blue-500" style={{ fontSize: "20px" }}>mail</span>
+                  <div className="text-left flex-1">
+                    <p className="font-bold text-gray-900 text-sm">Conversation Continuity</p>
+                    <p className="text-xs text-gray-400">Email visitors when you reply and they are offline.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={config.email_followup_enabled}
+                      onChange={(e) => setConfig({ ...config, email_followup_enabled: e.target.checked })}
+                      className="w-5 h-5 accent-blue-600 rounded cursor-pointer"
+                    />
+                  </div>
+                </div>
+                {config.email_followup_enabled && (
+                  <div className="mt-4 space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold text-gray-500">Email Subject</label>
+                      <input
+                        type="text"
+                        {...field("email_followup_subject")}
+                        placeholder="e.g. You have a new message from our team"
+                        className="w-full bg-white border border-gray-200 focus:border-blue-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all"
+                      />
+                      <p className="text-[10px] text-gray-400">
+                        Leave blank to use default: "New message from [Bot Name]"
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── AI Model Selection ── */}
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-6 py-4 bg-white hover:bg-gray-50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <span className="material-symbols-outlined text-purple-500" style={{ fontSize: "20px" }}>memory</span>
+                  <div className="text-left flex-1">
+                    <p className="font-bold text-gray-900 text-sm">AI Model Selection</p>
+                    <p className="text-xs text-gray-400">Choose the intelligence powering your bot.</p>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-500">Provider</label>
+                    <select
+                      value={config.ai_provider}
+                      onChange={(e) => {
+                        const newProvider = e.target.value;
+                        let defaultModel = "gpt-4o-mini";
+                        if (newProvider === "anthropic") defaultModel = "claude-haiku-4-5-20251001";
+                        if (newProvider === "groq") defaultModel = "llama-3.3-70b-versatile";
+                        if (newProvider === "gemini") defaultModel = "gemini-2.0-flash";
+                        if (newProvider === "grok") defaultModel = "grok-3-mini";
+                        setConfig({ ...config, ai_provider: newProvider, ai_model: defaultModel });
+                      }}
+                      className="w-full bg-white border border-gray-200 focus:border-purple-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all appearance-none"
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="anthropic">Anthropic (Claude)</option>
+                      <option value="gemini">Google Gemini</option>
+                      <option value="groq">Groq (Llama)</option>
+                      <option value="grok">xAI (Grok)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-gray-500">Model</label>
+                    <select
+                      {...field("ai_model")}
+                      className="w-full bg-white border border-gray-200 focus:border-purple-500 rounded-xl px-4 py-3 text-gray-900 font-medium outline-none transition-all appearance-none"
+                    >
+                      {config.ai_provider === "openai" && (
+                        <>
+                          <option value="gpt-4o-mini">GPT-4o Mini (Fast)</option>
+                          <option value="gpt-4o">GPT-4o (Powerful)</option>
+                        </>
+                      )}
+                      {config.ai_provider === "anthropic" && (
+                        <>
+                          <option value="claude-haiku-4-5-20251001">Claude 3.5 Haiku (Fast)</option>
+                          <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet (Powerful)</option>
+                        </>
+                      )}
+                      {config.ai_provider === "gemini" && (
+                        <>
+                          <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fast)</option>
+                          <option value="gemini-2.0-pro-exp-02-05">Gemini 2.0 Pro (Powerful)</option>
+                        </>
+                      )}
+                      {config.ai_provider === "groq" && (
+                        <>
+                          <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Fast)</option>
+                          <option value="mixtral-8x7b-32768">Mixtral 8x7b (Fast)</option>
+                        </>
+                      )}
+                      {config.ai_provider === "grok" && (
+                        <>
+                          <option value="grok-3-mini">Grok 3 Mini (Fast)</option>
+                          <option value="grok-3">Grok 3 (Powerful)</option>
+                        </>
+                      )}
+                    </select>
                   </div>
                 </div>
               </div>

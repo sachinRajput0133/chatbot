@@ -37,6 +37,11 @@ class WidgetConfigOut(BaseModel):
     proactive_message: str | None = None
     proactive_delay: int | None = None
     proactive_exit_intent: bool = False
+    ai_provider: str = "openai"
+    ai_model: str = "gpt-4o-mini"
+    email_followup_enabled: bool = True
+    email_followup_subject: str | None = None
+    theme: str = "light"
     # Lead capture (included so widget knows what form to show)
     lead_capture: LeadCaptureInfo = LeadCaptureInfo()
 
@@ -57,6 +62,11 @@ class WidgetConfigUpdate(BaseModel):
     proactive_message: str | None = None
     proactive_delay: int | None = None
     proactive_exit_intent: bool | None = None
+    ai_provider: str | None = None
+    ai_model: str | None = None
+    email_followup_enabled: bool | None = None
+    email_followup_subject: str | None = None
+    theme: str | None = None
     # Brand Voice
     company_website: str | None = None
     company_email: str | None = None

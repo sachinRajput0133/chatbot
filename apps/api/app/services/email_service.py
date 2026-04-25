@@ -405,3 +405,36 @@ def send_keyword_alert_email(
         cc=cc,
     )
 
+
+def send_visitor_followup(
+    *,
+    to: str,
+    bot_name: str,
+    message_content: str,
+    conversation_id: str,
+    subject: str | None = None
+) -> None:
+    """Send an email to a visitor when an agent replies and they are offline."""
+    subject = subject or f"New message from {bot_name}"
+    
+    # Clean message content for preview
+    safe_msg = message_content.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+    
+    content = f"""
+<h2>You have a new message from {bot_name}</h2>
+<p>Hi there,</p>
+<p>An agent has replied to your conversation. You can view the message and continue the chat by clicking the button below:</p>
+
+<div style="background:#f3f4f6;border-left:4px solid #6366f1;padding:12px 16px;border-radius:4px;margin:20px 0;">
+  <p style="margin:0;color:#374151;">{safe_msg}</p>
+</div>
+
+<a href="{FRONTEND_URL}/chat/{conversation_id}" class="btn">View Message & Reply →</a>
+
+<p style="color:#6b7280;font-size:14px;margin-top:24px;">
+  Thank you for using our chat!
+</p>
+"""
+    _send(to=to, subject=subject, html=_base(content))
+
+
