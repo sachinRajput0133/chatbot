@@ -1,36 +1,120 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { useState, useEffect, useRef } from "react";
 import type { RootState } from "@/lib/store";
 import { clearToken } from "@/lib/api/client";
+import { useCan, useIsOwner } from "@/lib/hooks/useCan";
+import { useMeQuery } from "@/lib/api";
+import { patchUser, setTenant } from "@/lib/slices/authSlice";
 import { ChatbotWidget } from "@/app/components/ChatbotWidget";
 import { HelpChatWidget } from "@/app/components/HelpChatWidget";
 
-const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
-  { href: "/dashboard/knowledge", label: "Knowledge Base", icon: "psychology" },
-  { href: "/dashboard/customize", label: "Customize Bot", icon: "tune" },
-  { href: "/dashboard/lead-capture", label: "Lead Capture", icon: "person_add" },
-  { href: "/dashboard/goals", label: "Bot Goals", icon: "track_changes" },
-  { href: "/dashboard/embed", label: "Embed Code", icon: "code" },
-  { href: "/dashboard/developer", label: "Developer API", icon: "api" },
-  { href: "/dashboard/conversations", label: "Conversations", icon: "forum" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: "insights" },
-  { href: "/dashboard/integrations", label: "Integrations", icon: "hub" },
-  { href: "/dashboard/billing", label: "Billing", icon: "payments" },
-  { href: "/dashboard/profile", label: "Profile", icon: "account_circle" },
+type NavItem = {
+  href: string;
+  label: string;
+  icon: string;
+  module?: string;
+  action?: string;
+  ownerOnly?: boolean;
+};
+
+type NavSection = {
+  title?: string;
+  items: NavItem[];
+};
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+    ],
+  },
+  {
+    title: "AI Training",
+    items: [
+      { href: "/dashboard/knowledge", label: "Knowledge Base", icon: "psychology", module: "knowledge", action: "view" },
+      { href: "/dashboard/customize", label: "Customize Bot", icon: "tune", module: "customize", action: "view" },
+      { href: "/dashboard/lead-capture", label: "Lead Capture", icon: "person_add", module: "lead_capture", action: "view" },
+      { href: "/dashboard/goals", label: "Bot Goals", icon: "track_changes", module: "goals", action: "view" },
+    ],
+  },
+  {
+    title: "Analyze",
+    items: [
+      { href: "/dashboard/conversations", label: "Conversations", icon: "forum", module: "conversations", action: "view" },
+      { href: "/dashboard/analytics", label: "Analytics", icon: "insights", module: "analytics", action: "view" },
+    ],
+  },
+  {
+    title: "Integrations",
+    items: [
+      { href: "/dashboard/integrations", label: "Integrations", icon: "hub", module: "integrations", action: "view" },
+      { href: "/dashboard/developer", label: "Developer API", icon: "api", module: "developer", action: "view" },
+      { href: "/dashboard/embed", label: "Embed Code", icon: "code", module: "embed", action: "view" },
+    ],
+  },
+  {
+    title: "Settings",
+    items: [
+      { href: "/dashboard/billing", label: "Billing", icon: "payments", module: "billing", action: "view" },
+      { href: "/dashboard/members", label: "Members", icon: "group", ownerOnly: true },
+      { href: "/dashboard/roles", label: "Roles & Permissions", icon: "shield_person", ownerOnly: true },
+      { href: "/dashboard/profile", label: "Settings", icon: "settings" },
+    ],
+  },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const dispatch = useDispatch();
   const tenant = useSelector((s: RootState) => s.auth.tenant);
+  const user = useSelector((s: RootState) => s.auth.user);
+  const isOwner = useIsOwner();
   const [unreadCount, setUnreadCount] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const { data: meData } = useMeQuery();
+
+  useEffect(() => {
+    if (!meData) return;
+    dispatch(
+      patchUser({
+        role: meData.user.role,
+        is_google_user: meData.user.is_google_user,
+        role_id: meData.user.role_id ?? null,
+        role_name: meData.user.role_name ?? null,
+        must_change_password: meData.user.must_change_password ?? false,
+        permissions: meData.user.permissions ?? [],
+      })
+    );
+    dispatch(
+      setTenant({
+        id: meData.tenant.id,
+        business_name: meData.tenant.business_name,
+        email: meData.tenant.email,
+        bot_id: meData.tenant.bot_id,
+        plan: meData.tenant.plan,
+        country: meData.tenant.country,
+        message_count_month: meData.tenant.message_count_month,
+      })
+    );
+  }, [meData, dispatch]);
+
+  useEffect(() => {
+    if (
+      user?.must_change_password &&
+      pathname !== "/dashboard/complete-invitation"
+    ) {
+      router.replace("/dashboard/complete-invitation");
+    }
+  }, [user?.must_change_password, pathname, router]);
 
   useEffect(() => {
     async function fetchUnread() {
@@ -57,13 +141,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
   }, []);
 
-  // Close sidebar on route change (mobile)
   useEffect(() => {
     setSidebarOpen(false);
     if (pathname === "/dashboard/conversations") {
       setUnreadCount(0);
     }
   }, [pathname]);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
 
   function logout() {
     clearToken();
@@ -74,8 +167,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     ? tenant.plan.charAt(0).toUpperCase() + tenant.plan.slice(1) + " Tier"
     : "Free Tier";
 
+  const displayName =
+    (user?.email && user.email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())) ||
+    "User";
+  const avatarLetter = (user?.email?.[0] ?? "U").toUpperCase();
+  const businessName = tenant?.business_name ?? "";
+
+  if (user?.must_change_password && pathname === "/dashboard/complete-invitation") {
+    return <>{children}</>;
+  }
+
   return (
-    <div className="flex min-h-screen bg-gray-50" style={{ fontFamily: "'Manrope', sans-serif" }}>
+    <div className="flex min-h-screen bg-[#F7F8FA]" style={{ fontFamily: "'Manrope', sans-serif" }}>
       {/* Mobile Backdrop */}
       {isSidebarOpen && (
         <div
@@ -86,105 +189,263 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-screen w-72 bg-white border-r border-gray-100 flex flex-col p-6 z-[70] transition-transform duration-300 ease-in-out md:translate-x-0 ${
+        className={`fixed left-0 top-0 h-screen w-64 bg-[#0E1116] text-gray-300 flex flex-col z-[70] transition-transform duration-300 ease-in-out md:translate-x-0 ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
-        style={{ backgroundColor: "#f9fafb" }}
       >
-        {/* Sidebar Header */}
-        <div className="flex items-center justify-between mb-8 px-2">
-          <div>
-            <h1 className="text-2xl font-black text-gray-900 tracking-tighter">ChatBot AI</h1>
-            <p className="text-[10px] text-orange-600 font-bold tracking-widest uppercase opacity-80">{planLabel}</p>
+        {/* Logo / Brand */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-900/30">
+              <span className="material-symbols-outlined text-white" style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}>
+                smart_toy
+              </span>
+            </div>
+            <span className="text-white font-bold text-[16px] tracking-tight">ChatBot AI</span>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="md:hidden p-2 text-gray-400 hover:text-gray-900 transition-colors"
+            className="md:hidden p-1.5 text-gray-400 hover:text-white transition-colors"
           >
-            <span className="material-symbols-outlined">close</span>
+            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>close</span>
+          </button>
+          <button className="hidden md:flex p-1 text-gray-500 hover:text-white transition-colors">
+            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>menu</span>
           </button>
         </div>
 
-        {/* New Chat button */}
-        <button
-          onClick={() => router.push("/dashboard/conversations")}
-          className="flex items-center justify-center gap-3 w-full py-4 px-6 rounded-2xl text-white font-bold text-sm mb-6 shadow-lg shadow-orange-900/20 active:scale-95 transition-all"
-          style={{ backgroundColor: "#F15A24" }}
-        >
-          <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1", fontSize: "20px" }}>
-            add_circle
-          </span>
-          New Conversation
-        </button>
+        {/* New Conversation */}
+        <div className="px-5 pb-3">
+          <button
+            onClick={() => router.push("/dashboard/conversations")}
+            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[13px] shadow-lg shadow-violet-900/40 transition-colors"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>add</span>
+            New Conversation
+          </button>
+        </div>
 
         {/* Nav */}
-        <nav className="flex-1 space-y-1 overflow-y-auto no-scrollbar pr-1">
-          {NAV.map((item) => {
-            const active = pathname === item.href;
-            const isConversations = item.href === "/dashboard/conversations";
-            const showBadge = isConversations && unreadCount > 0 && !active;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3.5 px-4 py-3.5 rounded-xl text-[14px] font-bold transition-all ${
-                  active
-                    ? "bg-white text-orange-600 shadow-sm border border-gray-100"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
-                }`}
-              >
-                <span
-                  className="material-symbols-outlined"
-                  style={{ fontSize: "22px", fontVariationSettings: active ? "'FILL' 1" : "" }}
-                >
-                  {item.icon}
-                </span>
-                <span className="flex-1">{item.label}</span>
-                {showBadge && (
-                  <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-orange-600 text-white text-[10px] font-black flex items-center justify-center leading-none">
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 px-3 overflow-y-auto no-scrollbar">
+          {NAV_SECTIONS.map((section, idx) => (
+            <NavSection
+              key={section.title ?? `section-${idx}`}
+              section={section}
+              pathname={pathname}
+              unreadCount={unreadCount}
+              isOwner={isOwner}
+            />
+          ))}
         </nav>
 
-        {/* User / Logout */}
-        <div className="mt-8 pt-6 border-t border-gray-200/60">
-          <button
-            onClick={logout}
-            className="w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-bold text-gray-400 hover:text-red-600 hover:bg-red-50 transition-all"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: "22px" }}>logout</span>
-            Sign Out
-          </button>
+        {/* Upgrade Card */}
+        <div className="px-4 pt-4">
+          <div className="relative rounded-xl p-4 bg-gradient-to-br from-violet-600/20 via-violet-700/10 to-transparent border border-violet-500/20 overflow-hidden">
+            <div className="absolute -top-6 -right-6 w-20 h-20 bg-violet-500/20 blur-2xl rounded-full" />
+            <div className="flex items-center gap-2 mb-2 relative">
+              <span className="material-symbols-outlined text-violet-300" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>
+                diamond
+              </span>
+              <span className="text-white text-[13px] font-bold">Upgrade to Pro</span>
+            </div>
+            <p className="text-gray-400 text-[11px] leading-relaxed mb-3 relative">
+              Unlock advanced features, remove limits, and boost performance.
+            </p>
+            <Link
+              href="/dashboard/billing"
+              className="flex items-center justify-between w-full py-2 px-3 rounded-lg bg-white/95 hover:bg-white text-gray-900 font-semibold text-[12px] transition-colors relative"
+            >
+              Upgrade Now
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>arrow_forward</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* User footer */}
+        <div className="px-4 py-4 mt-3 border-t border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+              {avatarLetter}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-white text-[13px] font-semibold truncate">{displayName}</div>
+              <div className="text-gray-500 text-[11px] truncate">{businessName || planLabel}</div>
+            </div>
+            <button
+              onClick={logout}
+              title="Sign out"
+              className="p-1.5 text-gray-500 hover:text-white transition-colors"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>logout</span>
+            </button>
+          </div>
         </div>
       </aside>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0 md:pl-72">
-        {/* Mobile Top Bar */}
-        <header className="sticky top-0 z-50 h-16 md:hidden flex items-center justify-between px-6 bg-white/80 backdrop-blur-md border-bottom border-gray-100">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="p-2 -ml-2 text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <span className="material-symbols-outlined">menu</span>
-          </button>
-          <h1 className="text-lg font-black text-gray-900 tracking-tight">ChatBot AI</h1>
-          <div className="w-9" /> {/* Spacer for balance */}
+      <div className="flex-1 flex flex-col min-w-0 md:pl-64">
+        {/* Top Bar */}
+        <header className="sticky top-0 z-50 h-16 flex items-center justify-between px-4 md:px-8 bg-[#F7F8FA]/80 backdrop-blur-md border-b border-gray-200/60">
+          <div className="flex items-center gap-3 flex-1">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="md:hidden p-2 -ml-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <span className="material-symbols-outlined">menu</span>
+            </button>
+            <div className="hidden md:flex items-center gap-2 w-full max-w-md bg-white border border-gray-200 rounded-lg px-3.5 py-2">
+              <span className="material-symbols-outlined text-gray-400" style={{ fontSize: "20px" }}>search</span>
+              <input
+                type="text"
+                placeholder="Search anything..."
+                className="flex-1 bg-transparent outline-none text-sm text-gray-700 placeholder:text-gray-400"
+              />
+              <kbd className="hidden lg:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50 text-[10px] font-semibold text-gray-500">
+                ⌘K
+              </kbd>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 md:gap-3">
+            <button className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors">
+              <span className="material-symbols-outlined" style={{ fontSize: "22px" }}>card_giftcard</span>
+            </button>
+            <button
+              onClick={() => router.push("/dashboard/conversations")}
+              className="relative p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "22px" }}>notifications</span>
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </button>
+            <div className="relative" ref={userMenuRef}>
+              <button
+                onClick={() => setUserMenuOpen((s) => !s)}
+                className="flex items-center gap-2 p-1 pr-2 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-xs">
+                  {avatarLetter}
+                </div>
+                <div className="hidden md:block text-left leading-tight">
+                  <div className="text-[13px] font-semibold text-gray-900 truncate max-w-[140px]">{displayName}</div>
+                  <div className="text-[11px] text-gray-500 truncate max-w-[140px]">{businessName || planLabel}</div>
+                </div>
+                <span className="material-symbols-outlined text-gray-500" style={{ fontSize: "18px" }}>expand_more</span>
+              </button>
+              {userMenuOpen && (
+                <div className="absolute right-0 top-full mt-2 w-52 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <div className="text-sm font-semibold text-gray-900 truncate">{displayName}</div>
+                    <div className="text-xs text-gray-500 truncate">{user?.email}</div>
+                  </div>
+                  <Link
+                    href="/dashboard/profile"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>settings</span>
+                    Settings
+                  </Link>
+                  <button
+                    onClick={logout}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>logout</span>
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </header>
 
-        <main className="flex-1 p-6 md:p-10 lg:p-12 max-w-7xl mx-auto w-full">
+        <main className="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-[1400px] w-full">
           {children}
         </main>
       </div>
 
-      {/* Owner preview: load their own chatbot so they can test it (bottom-right) */}
       <ChatbotWidget />
-      {/* Platform help bot for all dashboard users (bottom-left) */}
       <HelpChatWidget />
     </div>
+  );
+}
+
+function NavSection({
+  section,
+  pathname,
+  unreadCount,
+  isOwner,
+}: {
+  section: NavSection;
+  pathname: string;
+  unreadCount: number;
+  isOwner: boolean;
+}) {
+  return (
+    <div className="mb-3">
+      {section.title && (
+        <div className="px-3 mt-3 mb-1.5 text-[10px] font-semibold tracking-[0.12em] text-gray-500 uppercase">
+          {section.title}
+        </div>
+      )}
+      <div className="space-y-0.5">
+        {section.items.map((item) => (
+          <NavLinkItem
+            key={item.href}
+            item={item}
+            pathname={pathname}
+            unreadCount={unreadCount}
+            isOwner={isOwner}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NavLinkItem({
+  item,
+  pathname,
+  unreadCount,
+  isOwner,
+}: {
+  item: NavItem;
+  pathname: string;
+  unreadCount: number;
+  isOwner: boolean;
+}) {
+  const can = useCan(item.module ?? "", item.action ?? "");
+
+  if (item.ownerOnly && !isOwner) return null;
+  if (item.module && item.action && !can) return null;
+
+  const active = pathname === item.href;
+  const isConversations = item.href === "/dashboard/conversations";
+  const showBadge = isConversations && unreadCount > 0 && !active;
+
+  return (
+    <Link
+      href={item.href}
+      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+        active
+          ? "bg-white/[0.08] text-white"
+          : "text-gray-400 hover:text-white hover:bg-white/5"
+      }`}
+    >
+      <span
+        className={`material-symbols-outlined ${active ? "text-violet-400" : ""}`}
+        style={{ fontSize: "20px", fontVariationSettings: active ? "'FILL' 1" : "" }}
+      >
+        {item.icon}
+      </span>
+      <span className="flex-1">{item.label}</span>
+      {showBadge && (
+        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+          {unreadCount > 99 ? "99+" : unreadCount}
+        </span>
+      )}
+    </Link>
   );
 }

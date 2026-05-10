@@ -12,6 +12,10 @@ export interface UserOut {
   tenant_id: string;
   is_google_user: boolean;
   created_at: string | null;
+  role_id?: string | null;
+  role_name?: string | null;
+  must_change_password?: boolean;
+  permissions?: string[];
 }
 
 export interface TenantOut {
@@ -52,6 +56,10 @@ export const authApi = baseApi.injectEndpoints({
     changePassword: build.mutation<void, { current_password: string; new_password: string }>({
       query: (body) => ({ url: "/api/auth/change-password", method: "PUT", body }),
     }),
+    completeInvitation: build.mutation<void, { new_password: string }>({
+      query: (body) => ({ url: "/api/auth/complete-invitation", method: "POST", body }),
+      invalidatesTags: ["Profile"],
+    }),
   }),
 });
 
@@ -62,4 +70,5 @@ export const {
   useMeQuery,
   useUpdateProfileMutation,
   useChangePasswordMutation,
+  useCompleteInvitationMutation,
 } = authApi;

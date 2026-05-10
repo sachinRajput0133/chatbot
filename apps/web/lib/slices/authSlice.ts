@@ -6,6 +6,10 @@ interface AuthUser {
   role: string;
   tenant_id: string;
   is_google_user?: boolean;
+  role_id?: string | null;
+  role_name?: string | null;
+  must_change_password?: boolean;
+  permissions?: string[];
 }
 
 interface AuthState {
@@ -58,6 +62,13 @@ const authSlice = createSlice({
     setTenant(state, action: PayloadAction<AuthState["tenant"]>) {
       state.tenant = action.payload;
     },
+    patchUser(state, action: PayloadAction<Partial<AuthUser>>) {
+      if (!state.user) return;
+      state.user = { ...state.user, ...action.payload };
+      if (typeof window !== "undefined") {
+        localStorage.setItem("cb_user", JSON.stringify(state.user));
+      }
+    },
     clearAuth(state) {
       state.token = null;
       state.user = null;
@@ -70,5 +81,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { setAuth, setTenant, clearAuth } = authSlice.actions;
+export const { setAuth, setTenant, patchUser, clearAuth } = authSlice.actions;
 export default authSlice.reducer;

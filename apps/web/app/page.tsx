@@ -250,7 +250,7 @@ export default function LandingPage() {
                   Capture Lead
                 </div>
                 <div className="flex -space-x-1.5 pt-1">
-                  {["https://i.pravatar.cc/40?img=21","https://i.pravatar.cc/40?img=15","https://i.pravatar.cc/40?img=8"].map((s) => (
+                  {["https://i.pravatar.cc/40?img=21", "https://i.pravatar.cc/40?img=15", "https://i.pravatar.cc/40?img=8"].map((s) => (
                     <img key={s} src={s} alt="" className="w-4 h-4 rounded-full border border-white object-cover" />
                   ))}
                 </div>
@@ -297,13 +297,13 @@ export default function LandingPage() {
             >
               <div className="mt-3 flex items-center gap-1.5">
                 <span className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center">
-                  <svg className="w-3 h-3 text-slate-600" viewBox="0 0 24 24" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.527 2.527 0 0 1 2.521 2.521 2.527 2.527 0 0 1-2.521 2.521H2.522A2.527 2.527 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z"/></svg>
+                  <svg className="w-3 h-3 text-slate-600" viewBox="0 0 24 24" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.527 2.527 0 0 1 2.521 2.521 2.527 2.527 0 0 1-2.521 2.521H2.522A2.527 2.527 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z" /></svg>
                 </span>
                 <span className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
-                  <svg className="w-3 h-3 text-emerald-600" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163a11.867 11.867 0 0 1-1.587-5.946C.16 5.335 5.495 0 12.05 0a11.817 11.817 0 0 1 8.413 3.488 11.824 11.824 0 0 1 3.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 0 1-5.688-1.448L.057 24z"/></svg>
+                  <svg className="w-3 h-3 text-emerald-600" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163a11.867 11.867 0 0 1-1.587-5.946C.16 5.335 5.495 0 12.05 0a11.817 11.817 0 0 1 8.413 3.488 11.824 11.824 0 0 1 3.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 0 1-5.688-1.448L.057 24z" /></svg>
                 </span>
                 <span className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
-                  <svg className="w-3 h-3 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+                  <svg className="w-3 h-3 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></svg>
                 </span>
                 <span className="text-[9px] text-slate-500 font-semibold">+ more</span>
               </div>
@@ -428,100 +428,80 @@ function PlayIcon() {
 }
 
 function ChatMockup() {
+  const suggestions = [
+    "How can ChatBot AI help me?",
+    "What integrations does ChatBot AI offer?",
+    "Is there a free plan?",
+    "Can I see a demo?",
+  ];
   return (
-    <div className="bg-white rounded-3xl shadow-[0_24px_70px_-20px_rgba(91,33,182,0.35)] border border-slate-100 overflow-hidden max-w-md mx-auto">
-      {/* Header */}
-      <div className="bg-slate-900 text-white px-5 py-4 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-          <BotMark className="w-5 h-5 text-white" />
-        </div>
-        <div className="flex-1">
-          <div className="text-[14px] font-bold leading-tight">AI Sales &amp; Support Agent</div>
-          <div className="text-[11px] text-emerald-400 flex items-center gap-1.5 mt-0.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Online
+    <div className="mx-auto max-w-[400px] rounded-[40px] bg-slate-900 p-1.5 shadow-[0_30px_80px_-20px_rgba(15,23,42,0.45)]">
+      <div className="flex h-[640px] flex-col overflow-hidden rounded-[36px] bg-white">
+        {/* Header */}
+        <div className="flex items-center gap-3 bg-violet-600 px-4 py-3.5 text-white">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-violet-600 font-extrabold">
+            A
           </div>
-        </div>
-        <span className="text-slate-400">⋯</span>
-      </div>
-
-      {/* Messages */}
-      <div className="p-5 space-y-3 bg-slate-50/40">
-        <div className="flex items-end gap-2">
-          <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
-            <BotMark className="w-4 h-4 text-violet-600" />
+          <div className="flex-1 text-[15px] font-semibold leading-none">
+            Assistant
           </div>
-          <div className="bg-white rounded-2xl rounded-bl-sm px-3.5 py-2 text-[13px] text-slate-800 shadow-sm border border-slate-100">
-            Hi! 👋 How can I help you today?
-          </div>
+          <button className="text-white/80 hover:text-white" aria-label="More">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="5" cy="12" r="1.6" />
+              <circle cx="12" cy="12" r="1.6" />
+              <circle cx="19" cy="12" r="1.6" />
+            </svg>
+          </button>
+          <button className="text-white/80 hover:text-white" aria-label="Close">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
         </div>
 
-        <div className="flex justify-end">
-          <div className="bg-violet-500 text-white rounded-2xl rounded-br-sm px-3.5 py-2 text-[13px] max-w-[80%]">
-            I need help choosing the right plan for my team.
+        {/* Messages */}
+        <div className="flex flex-1 flex-col gap-3 overflow-hidden p-4">
+          <div className="self-start max-w-[80%] rounded-2xl bg-slate-100 px-3.5 py-2 text-[13px] text-slate-800">
+            Hi! How can I help you today?
           </div>
-        </div>
 
-        <div className="flex items-end gap-2">
-          <div className="w-7 h-7 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
-            <BotMark className="w-4 h-4 text-violet-600" />
-          </div>
-          <div className="bg-white rounded-2xl rounded-bl-sm px-3.5 py-2 text-[13px] text-slate-800 shadow-sm border border-slate-100">
-            Of course! I can help with that.
-          </div>
-        </div>
-
-        <div className="ml-9 space-y-2">
-          <div className="text-[12px] text-slate-500">Which best describes your team size?</div>
-          <div className="flex gap-2">
-            <button className="px-3 py-1.5 rounded-full bg-white border border-slate-200 text-[12px] font-semibold text-slate-700">
-              1-10
-            </button>
-            <button className="px-3 py-1.5 rounded-full bg-violet-600 border border-violet-600 text-[12px] font-bold text-white">
-              11-50
-            </button>
-            <button className="px-3 py-1.5 rounded-full bg-white border border-slate-200 text-[12px] font-semibold text-slate-700">
-              50+
-            </button>
+          <div className="mt-auto flex flex-col items-end gap-2">
+            {suggestions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-[12.5px] text-slate-700 hover:border-violet-300 hover:text-violet-700 transition-colors"
+              >
+                {s}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Lead captured card */}
-        <div className="mt-3 bg-white rounded-2xl border border-slate-100 shadow-sm p-3 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-violet-100 flex items-center justify-center flex-shrink-0">
-            <BotMark className="w-5 h-5 text-violet-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-bold text-slate-800">Lead Captured</div>
-            <div className="text-[12px] text-slate-600">John Doe</div>
-            <div className="text-[11px] text-slate-400 truncate">john@example.com</div>
-          </div>
-          <span className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs">
-            ✓
+        {/* Powered by */}
+        <div className="flex justify-center pb-1.5">
+          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] text-slate-500">
+            Powered by <span className="font-semibold text-slate-700">ChatBot AI</span>
           </span>
         </div>
-      </div>
 
-      {/* Composer */}
-      <div className="px-4 pb-4">
-        <div className="flex items-center gap-2 bg-slate-100 rounded-full pl-4 pr-1.5 py-1.5">
-          <input
-            type="text"
-            placeholder="Type your message..."
-            className="flex-1 bg-transparent outline-none text-[13px] placeholder-slate-400"
-          />
-          <button className="text-slate-400 px-1">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 12.5l-9 9a6 6 0 01-8.5-8.5l9-9a4 4 0 015.5 5.5l-9 9a2 2 0 01-2.8-2.8l8-8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          <button className="w-8 h-8 rounded-full bg-violet-600 hover:bg-violet-700 flex items-center justify-center text-white">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2 21l21-9L2 3v7l15 2-15 2z" />
-            </svg>
-          </button>
-        </div>
-        <div className="text-center text-[10px] text-slate-400 mt-2">
-          Powered by <span className="font-bold text-slate-600">ChatBot AI</span>
+        {/* Composer */}
+        <div className="px-3 pb-3">
+          <div className="flex items-center gap-2 rounded-full bg-slate-100 pl-4 pr-1.5 py-1.5">
+            <input
+              type="text"
+              placeholder="Ask me anything..."
+              className="flex-1 bg-transparent text-[13px] outline-none placeholder-slate-400"
+            />
+            <button
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-600 text-white hover:bg-violet-700"
+              aria-label="Send"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M2 21l21-9L2 3v7l15 2-15 2z" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </div>
