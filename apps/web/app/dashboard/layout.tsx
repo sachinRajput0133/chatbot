@@ -77,8 +77,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("cb_sidebar_collapsed");
+    if (stored === "1") setSidebarCollapsed(true);
+  }, []);
+
+  function toggleSidebarCollapsed() {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("cb_sidebar_collapsed", next ? "1" : "0");
+      }
+      return next;
+    });
+  }
 
   const { data: meData } = useMeQuery();
 
@@ -189,19 +206,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-screen w-64 bg-[#0E1116] text-gray-300 flex flex-col z-[70] transition-transform duration-300 ease-in-out md:translate-x-0 ${
+        className={`fixed left-0 top-0 h-screen bg-[#0E1116] text-gray-300 flex flex-col z-[70] transition-[transform,width] duration-300 ease-in-out md:translate-x-0 ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
+        } ${isSidebarCollapsed ? "w-20" : "w-64"}`}
       >
         {/* Logo / Brand */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-900/30">
+        <div className={`flex items-center pt-5 pb-4 ${isSidebarCollapsed ? "px-3 flex-col gap-3" : "px-5 justify-between"}`}>
+          <div className={`flex items-center ${isSidebarCollapsed ? "" : "gap-2.5"}`}>
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-900/30 flex-shrink-0">
               <span className="material-symbols-outlined text-white" style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}>
                 smart_toy
               </span>
             </div>
-            <span className="text-white font-bold text-[16px] tracking-tight">ChatBot AI</span>
+            {!isSidebarCollapsed && (
+              <span className="text-white font-bold text-[16px] tracking-tight">ChatBot AI</span>
+            )}
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -209,19 +228,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           >
             <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>close</span>
           </button>
-          <button className="hidden md:flex p-1 text-gray-500 hover:text-white transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>menu</span>
+          <button
+            onClick={toggleSidebarCollapsed}
+            title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="hidden md:flex p-1 text-gray-500 hover:text-white transition-colors"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>
+              {isSidebarCollapsed ? "menu_open" : "menu"}
+            </span>
           </button>
         </div>
 
         {/* New Conversation */}
-        <div className="px-5 pb-3">
+        <div className={isSidebarCollapsed ? "px-3 pb-3" : "px-5 pb-3"}>
           <button
             onClick={() => router.push("/dashboard/conversations")}
-            className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[13px] shadow-lg shadow-violet-900/40 transition-colors"
+            title={isSidebarCollapsed ? "New Conversation" : undefined}
+            className={`flex items-center justify-center gap-2 w-full rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[13px] shadow-lg shadow-violet-900/40 transition-colors ${
+              isSidebarCollapsed ? "py-2.5" : "py-2.5"
+            }`}
           >
             <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>add</span>
-            New Conversation
+            {!isSidebarCollapsed && "New Conversation"}
           </button>
         </div>
 
@@ -234,43 +262,51 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               pathname={pathname}
               unreadCount={unreadCount}
               isOwner={isOwner}
+              collapsed={isSidebarCollapsed}
             />
           ))}
         </nav>
 
         {/* Upgrade Card */}
-        <div className="px-4 pt-4">
-          <div className="relative rounded-xl p-4 bg-gradient-to-br from-violet-600/20 via-violet-700/10 to-transparent border border-violet-500/20 overflow-hidden">
-            <div className="absolute -top-6 -right-6 w-20 h-20 bg-violet-500/20 blur-2xl rounded-full" />
-            <div className="flex items-center gap-2 mb-2 relative">
-              <span className="material-symbols-outlined text-violet-300" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>
-                diamond
-              </span>
-              <span className="text-white text-[13px] font-bold">Upgrade to Pro</span>
+        {!isSidebarCollapsed && (
+          <div className="px-4 pt-4">
+            <div className="relative rounded-xl p-4 bg-gradient-to-br from-violet-600/20 via-violet-700/10 to-transparent border border-violet-500/20 overflow-hidden">
+              <div className="absolute -top-6 -right-6 w-20 h-20 bg-violet-500/20 blur-2xl rounded-full" />
+              <div className="flex items-center gap-2 mb-2 relative">
+                <span className="material-symbols-outlined text-violet-300" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>
+                  diamond
+                </span>
+                <span className="text-white text-[13px] font-bold">Upgrade to Pro</span>
+              </div>
+              <p className="text-gray-400 text-[11px] leading-relaxed mb-3 relative">
+                Unlock advanced features, remove limits, and boost performance.
+              </p>
+              <Link
+                href="/dashboard/billing"
+                className="flex items-center justify-between w-full py-2 px-3 rounded-lg bg-white/95 hover:bg-white text-gray-900 font-semibold text-[12px] transition-colors relative"
+              >
+                Upgrade Now
+                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>arrow_forward</span>
+              </Link>
             </div>
-            <p className="text-gray-400 text-[11px] leading-relaxed mb-3 relative">
-              Unlock advanced features, remove limits, and boost performance.
-            </p>
-            <Link
-              href="/dashboard/billing"
-              className="flex items-center justify-between w-full py-2 px-3 rounded-lg bg-white/95 hover:bg-white text-gray-900 font-semibold text-[12px] transition-colors relative"
-            >
-              Upgrade Now
-              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>arrow_forward</span>
-            </Link>
           </div>
-        </div>
+        )}
 
         {/* User footer */}
-        <div className="px-4 py-4 mt-3 border-t border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+        <div className={`py-4 mt-3 border-t border-white/5 ${isSidebarCollapsed ? "px-2" : "px-4"}`}>
+          <div className={`flex items-center ${isSidebarCollapsed ? "flex-col gap-2" : "gap-3"}`}>
+            <div
+              className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+              title={isSidebarCollapsed ? `${displayName} — ${businessName || planLabel}` : undefined}
+            >
               {avatarLetter}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-white text-[13px] font-semibold truncate">{displayName}</div>
-              <div className="text-gray-500 text-[11px] truncate">{businessName || planLabel}</div>
-            </div>
+            {!isSidebarCollapsed && (
+              <div className="flex-1 min-w-0">
+                <div className="text-white text-[13px] font-semibold truncate">{displayName}</div>
+                <div className="text-gray-500 text-[11px] truncate">{businessName || planLabel}</div>
+              </div>
+            )}
             <button
               onClick={logout}
               title="Sign out"
@@ -283,7 +319,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0 md:pl-64">
+      <div className={`flex-1 flex flex-col min-w-0 transition-[padding] duration-300 ease-in-out ${isSidebarCollapsed ? "md:pl-20" : "md:pl-64"}`}>
         {/* Top Bar */}
         <header className="sticky top-0 z-50 h-16 flex items-center justify-between px-4 md:px-8 bg-[#F7F8FA]/80 backdrop-blur-md border-b border-gray-200/60">
           <div className="flex items-center gap-3 flex-1">
@@ -361,7 +397,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        <main className="flex-1 px-4 md:px-8 py-6 md:py-8 max-w-[1400px] w-full">
+        <main className={`flex-1 w-full ${pathname.startsWith("/dashboard/conversations") ? "" : "px-4 md:px-8 py-6 md:py-8 max-w-[1400px]"}`}>
           {children}
         </main>
       </div>
@@ -377,18 +413,23 @@ function NavSection({
   pathname,
   unreadCount,
   isOwner,
+  collapsed,
 }: {
   section: NavSection;
   pathname: string;
   unreadCount: number;
   isOwner: boolean;
+  collapsed: boolean;
 }) {
   return (
     <div className="mb-3">
-      {section.title && (
+      {section.title && !collapsed && (
         <div className="px-3 mt-3 mb-1.5 text-[10px] font-semibold tracking-[0.12em] text-gray-500 uppercase">
           {section.title}
         </div>
+      )}
+      {section.title && collapsed && (
+        <div className="mx-3 my-2 border-t border-white/5" />
       )}
       <div className="space-y-0.5">
         {section.items.map((item) => (
@@ -398,6 +439,7 @@ function NavSection({
             pathname={pathname}
             unreadCount={unreadCount}
             isOwner={isOwner}
+            collapsed={collapsed}
           />
         ))}
       </div>
@@ -410,11 +452,13 @@ function NavLinkItem({
   pathname,
   unreadCount,
   isOwner,
+  collapsed,
 }: {
   item: NavItem;
   pathname: string;
   unreadCount: number;
   isOwner: boolean;
+  collapsed: boolean;
 }) {
   const can = useCan(item.module ?? "", item.action ?? "");
 
@@ -428,7 +472,10 @@ function NavLinkItem({
   return (
     <Link
       href={item.href}
-      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+      title={collapsed ? item.label : undefined}
+      className={`relative flex items-center rounded-lg text-[13px] font-medium transition-colors ${
+        collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2"
+      } ${
         active
           ? "bg-white/[0.08] text-white"
           : "text-gray-400 hover:text-white hover:bg-white/5"
@@ -440,10 +487,15 @@ function NavLinkItem({
       >
         {item.icon}
       </span>
-      <span className="flex-1">{item.label}</span>
-      {showBadge && (
+      {!collapsed && <span className="flex-1">{item.label}</span>}
+      {showBadge && !collapsed && (
         <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
           {unreadCount > 99 ? "99+" : unreadCount}
+        </span>
+      )}
+      {showBadge && collapsed && (
+        <span className="absolute top-1 right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+          {unreadCount > 9 ? "9+" : unreadCount}
         </span>
       )}
     </Link>

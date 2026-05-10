@@ -26,7 +26,7 @@ interface ConversationsViewProps {
 export default function ConversationsView({ initialOpenId }: ConversationsViewProps) {
   const router = useRouter();
 
-  // ── Conversation list ──────────────────────────────────────────────
+  // ── State ──
   const [conversations, setConversations] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,79 +36,64 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
   const [loadingMoreConvs, setLoadingMoreConvs] = useState(false);
   const [tenant, setTenant] = useState<any>(null);
 
-  // ── Messages + pagination ──────────────────────────────────────────
   const [messages, setMessages] = useState<any[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [msgLoading, setMsgLoading] = useState(false);
 
-  // ── Agent input state ──────────────────────────────────────────────
   const [agentInput, setAgentInput] = useState("");
   const [sendingAgent, setSendingAgent] = useState(false);
+  const [activeTab, setActiveTab] = useState<"conversation" | "timeline">("conversation");
 
-  // ── Scroll refs ────────────────────────────────────────────────────
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // ── Sidebar copy state ─────────────────────────────────────────────
-  const [copiedId, setCopiedId] = useState(false);
-
-  // ── Track whether we've handled the initialOpenId ─────────────────
   const openHandledRef = useRef(false);
 
-  const copyVisitorId = useCallback((id: string) => {
-    navigator.clipboard.writeText(id);
-    setCopiedId(true);
-    setTimeout(() => setCopiedId(false), 2000);
-  }, []);
-
-  // ── Load conversation list on mount + Tenant context ───────────────
+  // ── Load data ──
   useEffect(() => {
+    // Force body to not scroll to prevent dashboard double scrollbars
+    document.body.style.overflow = "hidden";
     api.me().then(res => setTenant(res.tenant)).catch(() => { });
-
-    api.listConversations(1)
-      .then(res => {
-        setConversations(res);
-        setHasMoreConvs(res.length === 20); // Default limit is 20
-      })
-      .catch((err) => {
-        if (err?.status === 401) router.push("/login");
-        // other errors (network, 5xx) — stay on page, show empty state
-      })
-      .finally(() => setLoading(false));
+    loadPage(1);
+    return () => {
+      document.body.style.overflow = "auto";
+    };
   }, []);
 
-  // ── Auto-open conversation from initialOpenId prop ────────────────
+  async function loadPage(page: number) {
+    try {
+      const res = await api.listConversations(page);
+      if (page === 1) setConversations(res);
+      else setConversations(prev => [...prev, ...res]);
+      setHasMoreConvs(res.length === 20);
+    } catch (err) {
+      if ((err as any)?.status === 401) router.push("/login");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Auto-open ──
   useEffect(() => {
     if (openHandledRef.current || loading || !initialOpenId) return;
-
     openHandledRef.current = true;
-
-    // Try to find it in already-loaded list; otherwise fetch it directly
     const found = conversations.find((c) => c.id === initialOpenId);
-    if (found) {
-      openConversation(found);
-    } else {
-      // Conversation might not be on page 1 — fetch it directly
-      api.getConversation(initialOpenId)
-        .then((conv) => {
-          // Prepend to list so it appears in sidebar
-          setConversations((prev) =>
-            prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev]
-          );
-          openConversation(conv);
-        })
-        .catch(() => {
-          // Conversation not found — just stay on the page
-        });
+    if (found) openConversation(found);
+    else {
+      api.getConversation(initialOpenId).then((conv) => {
+        setConversations((prev) => prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev]);
+        openConversation(conv);
+      }).catch(() => {});
     }
   }, [loading, conversations, initialOpenId]);
 
-  // ── Real-time via WebSocket ───────────────────────────────────────
+  // ── Real-time ──
   useEffect(() => {
     if (!tenant?.id) return;
-
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/^https?:\/\//, "") || "localhost:8000";
     const ws = new WebSocket(`${protocol}//${baseUrl}/ws/tenant/${tenant.id}`);
@@ -117,13 +102,9 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
       const data = JSON.parse(event.data);
       if (data.type === "new_message") {
         const { conversation_id, message } = data;
-
-        // 1. Update list position and preview text
         setConversations((prev) => {
           const idx = prev.findIndex(c => c.id === conversation_id);
           if (idx === -1) {
-            // New conversation arrived — we might want to refresh the list or prepend?
-            // For now, let's just refresh page 1 if it's a completely new convo
             api.listConversations(1).then(setConversations);
             return prev;
           }
@@ -132,7 +113,6 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
             ...existing,
             last_message_at: message.created_at,
             message_count: (existing.message_count || 0) + 1,
-            // If it's not the selected conversation, mark as unread and increment count
             is_unread: selected?.id !== conversation_id ? true : existing.is_unread,
             unread_count: selected?.id !== conversation_id ? (existing.unread_count || 0) + 1 : 0
           };
@@ -140,660 +120,477 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
           return [updated, ...others];
         });
 
-        // 2. If it's the currently open conversation, append the message
         if (selected?.id === conversation_id) {
-          setMessages((prev) => {
-            // Avoid duplicate messages if already sent by this client
-            if (prev.some(m => m.id === message.id || (m.content === message.content && m.role === message.role && Math.abs(new Date(m.created_at).getTime() - new Date(message.created_at).getTime()) < 1000))) {
-              return prev;
-            }
-            return [...prev, message];
-          });
-          api.markAsRead(conversation_id).catch(console.error);
-          requestAnimationFrame(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-          });
+          setMessages((prev) => prev.some(m => m.id === message.id) ? prev : [...prev, message]);
+          api.markAsRead(conversation_id).catch(() => {});
+          requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
         }
       }
     };
-
     return () => ws.close();
   }, [tenant, selected?.id]);
 
-  // ── Open conversation — load latest page, scroll to bottom ────────
+  // ── Actions ──
   async function openConversation(conv: any) {
-    // Reset state immediately for fast visual feedback
     setSelected(conv);
     setMessages([]);
-    setHasMore(false);
-    setNextCursor(null);
     setMsgLoading(true);
-
-    // Update URL to reflect the selected conversation (no page reload)
     window.history.replaceState(null, "", `/dashboard/conversations/${conv.id}`);
-
-    // Mark as read in local state immediately
     setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_unread: false, unread_count: 0 } : c));
 
     try {
-      api.markAsRead(conv.id).catch(console.error);
-
-      const [page, fresh] = await Promise.all([
-        api.getMessages(conv.id),
-        api.getConversation(conv.id),
-      ]);
+      api.markAsRead(conv.id).catch(() => {});
+      const [page, fresh] = await Promise.all([api.getMessages(conv.id), api.getConversation(conv.id)]);
       setMessages(page.messages);
       setHasMore(page.has_more);
       setNextCursor(page.next_cursor);
       setSelected(fresh);
-
-      // Scroll to bottom after messages paint
-      requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
-      });
+      requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "instant" }));
     } finally {
       setMsgLoading(false);
     }
   }
 
-  // ── Toggle AI / Human Mode ────────────────────────────────────────
   async function toggleMode() {
     if (!selected) return;
     const newMode = selected.mode === "human" ? "ai" : "human";
     try {
       const updated = await api.setConversationMode(selected.id, newMode);
       setSelected(updated);
-
-      // Update in the list as well to keep cache fresh although it's not super necessary
-      setConversations((prev: any[]) => prev.map((c: any) => c.id === updated.id ? updated : c));
-    } catch (err) {
-      console.error(err);
-      alert("Failed to toggle mode");
-    }
+      setConversations(prev => prev.map(c => c.id === updated.id ? updated : c));
+    } catch (err) { console.error(err); }
   }
 
-  // ── Send Agent Reply ──────────────────────────────────────────────
   async function handleSendAgent() {
     if (!selected || !agentInput.trim() || sendingAgent) return;
-
     setSendingAgent(true);
     try {
       const newMsg = await api.sendAgentReply(selected.id, agentInput);
       setAgentInput("");
-      setMessages((prev: any[]) => [...prev, newMsg]);
-      setSelected((prev: any) => prev ? { ...prev, last_message_at: newMsg.created_at } : null);
-
-      requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      });
-    } catch (err) {
-      console.error(err);
-      alert("Failed to send message");
-    } finally {
-      setSendingAgent(false);
-    }
+      setMessages(prev => [...prev, newMsg]);
+      setSelected(prev => prev ? { ...prev, last_message_at: newMsg.created_at } : null);
+      requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+    } catch (err) { console.error(err); } 
+    finally { setSendingAgent(false); }
   }
 
-  // ── Load older messages — prepend while preserving scroll pos ─────
-  const loadMoreMessages = useCallback(async () => {
-    if (!selected || !nextCursor || loadingMore) return;
-    setLoadingMore(true);
-
-    const container = scrollContainerRef.current;
-    const prevScrollHeight = container?.scrollHeight ?? 0;
-
-    try {
-      const page = await api.getMessages(selected.id, nextCursor);
-      setMessages((prev) => [...page.messages, ...prev]);
-      setHasMore(page.has_more);
-      setNextCursor(page.next_cursor);
-
-      // Restore scroll position so old messages appear above without jumping
-      requestAnimationFrame(() => {
-        if (container) {
-          const newScrollHeight = container.scrollHeight;
-          container.scrollTop = newScrollHeight - prevScrollHeight;
-        }
-      });
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [selected, nextCursor, loadingMore]);
-
-  // ── Scroll listener — trigger load when near top ──────────────────
-  const handleScroll = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    if (container.scrollTop < 80 && hasMore && !loadingMore) {
-      loadMoreMessages();
-    }
-  }, [hasMore, loadingMore, loadMoreMessages]);
-
-  // ── Load more conversations (sidebar infinite scroll) ────────────
-  const loadMoreConversations = useCallback(async () => {
-    if (loadingMoreConvs || !hasMoreConvs) return;
-    setLoadingMoreConvs(true);
-    try {
-      const nextPage = convPage + 1;
-      const results = await api.listConversations(nextPage);
-      if (results.length < 20) setHasMoreConvs(false);
-      setConversations(prev => [...prev, ...results]);
-      setConvPage(nextPage);
-    } finally {
-      setLoadingMoreConvs(false);
-    }
-  }, [convPage, hasMoreConvs, loadingMoreConvs]);
-
-  const handleSidebarScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop - clientHeight < 100 && hasMoreConvs && !loadingMoreConvs) {
-      loadMoreConversations();
-    }
-  };
-
-  // ── Filtered conversation list ────────────────────────────────────
-  const filtered = conversations.filter((c) => {
-    if (search === "") return true;
+  const filtered = conversations.filter(c => {
+    if (!search) return true;
     const q = search.toLowerCase();
-    return (
-      c.visitor_name?.toLowerCase().includes(q) ||
-      c.visitor_email?.toLowerCase().includes(q) ||
-      c.visitor_phone?.toLowerCase().includes(q) ||
-      c.visitor_id?.toLowerCase().includes(q) ||
-      c.page_url?.toLowerCase().includes(q)
-    );
+    return (c.visitor_name || "").toLowerCase().includes(q) || (c.visitor_id || "").toLowerCase().includes(q);
   });
 
   return (
-    <div className="flex flex-col" style={{ height: "100vh", fontFamily: "'Manrope', sans-serif" }}>
-
-      {/* Top Header */}
-      <header className="h-20 bg-white/80 backdrop-blur-md flex justify-between items-center px-10 border-b border-gray-100 shrink-0 z-10">
-        <div className="flex items-center gap-10">
-          <h1 className="font-extrabold text-2xl text-gray-900 tracking-tight">Conversations</h1>
-          <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-400" style={{ fontSize: "18px" }}>
-              search
-            </span>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search across all sessions..."
-              className="pl-11 pr-6 py-2.5 rounded-full bg-gray-100 border-none outline-none w-80 text-sm font-medium text-gray-700 focus:ring-2 focus:ring-orange-500/20"
-            />
+    <div className="flex flex-col h-[calc(100vh-64px)] w-full bg-[#F8FAFC] overflow-hidden" style={{ fontFamily: "'Manrope', sans-serif" }}>
+      {/* ── Page Header ── */}
+      <div className="px-8 py-4 shrink-0 flex items-center justify-between w-full bg-[#F8FAFC]">
+        <div className="flex items-center gap-4">
+          {leftCollapsed && (
+            <button 
+              onClick={() => setLeftCollapsed(false)}
+              className="w-10 h-10 flex items-center justify-center bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-violet-600 transition-all shadow-sm"
+            >
+              <span className="material-symbols-outlined">menu_open</span>
+            </button>
+          )}
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">Conversations</h1>
+            <p className="text-[11px] text-slate-400 font-medium mt-1 uppercase tracking-wider">Manage and analyze your bot conversations in one place.</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <span className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-full text-xs font-bold">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
-            {conversations.length} Sessions
-          </span>
+          <select className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-600 outline-none cursor-pointer shadow-sm hover:border-slate-300 transition-colors">
+            <option>All Time</option>
+            <option>Today</option>
+          </select>
+          <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-full border border-slate-200 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold text-slate-600 uppercase">1 Active Session</span>
+          </div>
+          {rightCollapsed && (
+            <button 
+              onClick={() => setRightCollapsed(false)}
+              className="w-10 h-10 flex items-center justify-center bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-violet-600 transition-all shadow-sm"
+            >
+              <span className="material-symbols-outlined">dock_to_left</span>
+            </button>
+          )}
         </div>
-      </header>
+      </div>
 
-      {/* Split View */}
-      <div className="flex flex-1 overflow-hidden">
-
+      <div className="flex flex-1 overflow-hidden px-8 pb-6 gap-4 w-full min-h-0">
         {/* ── Left: Session List ── */}
-        <section className="w-80 shrink-0 flex flex-col border-r border-gray-100 overflow-hidden" style={{ backgroundColor: "#f3f4f5" }}>
-          <div className="p-6 flex items-center justify-between shrink-0">
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Session List</span>
-            {!loading && (
-              <span className="px-3 py-1 rounded-full bg-orange-100 text-orange-700 text-[10px] font-black uppercase tracking-widest">
-                {conversations.length} Total
-              </span>
-            )}
+        <aside className={`transition-all duration-300 ease-in-out shrink-0 flex flex-col bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm ${
+          leftCollapsed ? "w-0 opacity-0 -translate-x-full pointer-events-none" : "w-72"
+        }`}>
+          <div className="p-5 flex items-center justify-between border-b border-slate-50">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs font-bold text-slate-900">Session List</h2>
+              <span className="bg-violet-50 text-violet-600 text-[10px] font-bold px-1.5 py-0.5 rounded">{conversations.length} Total</span>
+            </div>
+            <button onClick={() => setLeftCollapsed(true)} className="text-slate-400 hover:text-slate-600">
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>keyboard_double_arrow_left</span>
+            </button>
           </div>
-
-          <div
-            className="flex-1 overflow-y-auto px-4 pb-6 space-y-2"
-            onScroll={handleSidebarScroll}
-          >
-            {loading ? (
-              <div className="text-gray-400 text-sm font-bold text-center py-10">Loading...</div>
-            ) : filtered.length === 0 ? (
-              <div className="text-center py-16">
-                <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm">
-                  <span className="material-symbols-outlined text-gray-300" style={{ fontSize: "28px" }}>forum</span>
-                </div>
-                <p className="text-gray-400 text-xs font-bold">No conversations yet</p>
-                <p className="text-gray-300 text-xs mt-1">Share your embed code to start</p>
-              </div>
-            ) : (
-              filtered.map((conv) => {
-                const isActive = selected?.id === conv.id;
-                return (
-                  <button
-                    key={conv.id}
-                    onClick={() => openConversation(conv)}
-                    className={`w-full text-left p-5 rounded-2xl transition-all duration-200 border ${isActive
-                      ? "bg-white shadow-sm border-orange-200 ring-1 ring-orange-100"
-                      : "border-transparent hover:bg-gray-200"
-                      }`}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-sm font-bold text-gray-900 truncate">
-                        {conv.visitor_name || `Visitor #${conv.visitor_id?.slice(-6).toUpperCase()}`}
-                      </span>
-                      <span className="text-[10px] font-bold text-gray-400 shrink-0 ml-2">
-                        {timeAgo(conv.last_message_at)}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 leading-relaxed mb-3 line-clamp-2">
-                      {conv.visitor_email || conv.page_url || "No page URL"}
-                    </p>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${isActive ? "bg-emerald-500 animate-pulse" : "bg-gray-300"}`} />
-                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
-                          {conv.message_count ?? 0} messages
-                        </span>
+          <div className="p-4">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400" style={{ fontSize: 16 }}>search</span>
+              <input
+                type="text"
+                placeholder="Search sessions..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-9 pr-4 py-3 text-xs outline-none focus:border-violet-500 focus:bg-white transition-all placeholder:text-slate-400 font-medium"
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+            {filtered.map(conv => {
+              const isActive = selected?.id === conv.id;
+              return (
+                <button
+                  key={conv.id}
+                  onClick={() => openConversation(conv)}
+                  className={`w-full text-left p-4 rounded-2xl transition-all border ${
+                    isActive ? "bg-white border-violet-200 shadow-md ring-4 ring-violet-50" : "border-transparent hover:bg-slate-50"
+                  }`}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+                        <span className="material-symbols-outlined text-violet-600" style={{ fontSize: 18 }}>person</span>
                       </div>
-                      {conv.unread_count > 0 && (
-                        <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-orange-500 text-[10px] font-black text-white shadow-sm shadow-orange-500/50">
-                          {conv.unread_count}
-                        </span>
-                      )}
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-900 truncate">
+                          {conv.visitor_name || `Visitor #${conv.visitor_id?.slice(-6).toUpperCase()}`}
+                        </div>
+                        <div className="text-[10px] text-slate-400 truncate font-medium">{conv.page_url || "Dashboard"}</div>
+                      </div>
                     </div>
-                  </button>
-                );
-              })
-            )}
-            {loadingMoreConvs && (
-              <div className="flex justify-center py-4">
-                <div className="w-4 h-4 rounded-full border-2 border-gray-200 border-t-orange-500 animate-spin" />
-              </div>
-            )}
+                    <span className="text-[10px] font-bold text-slate-400 shrink-0 ml-2">{timeAgo(conv.last_message_at)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
+                    <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">{conv.message_count || 0} messages</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
-        </section>
+        </aside>
 
-        {/* ── Center: Message Transcript ── */}
-        <section className="flex-1 flex flex-col overflow-hidden bg-white">
+        {/* ── Center: Chat Area ── */}
+        <main className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm relative">
           {!selected ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-4">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "#a93200" + "15" }}>
-                <span className="material-symbols-outlined" style={{ fontSize: "32px", color: "#a93200", fontVariationSettings: "'FILL' 1" }}>
-                  chat
-                </span>
+            <div className="flex-1 flex flex-col items-center justify-center bg-white">
+              <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mb-4">
+                <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 40 }}>forum</span>
               </div>
-              <div className="text-center">
-                <p className="font-bold text-gray-700 mb-1">Select a conversation</p>
-                <p className="text-sm text-gray-400">Click a session from the list to view messages</p>
-              </div>
+              <h3 className="text-sm font-bold text-slate-900">Select a conversation</h3>
+              <p className="text-xs text-slate-400 mt-1">Manage and analyze your bot conversations in one place.</p>
             </div>
           ) : (
             <>
-              {/* Chat header */}
-              <div className="px-10 py-5 bg-white border-b border-gray-100 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ backgroundColor: "#a93200" + "15" }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: "24px", color: "#a93200", fontVariationSettings: "'FILL' 1" }}>
-                      person
-                    </span>
+              {/* Header */}
+              <div className="h-24 bg-white border-b border-slate-50 flex items-center justify-between px-6 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <button 
+                    onClick={() => setLeftCollapsed(!leftCollapsed)}
+                    className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all border ${
+                      leftCollapsed ? "bg-violet-50 border-violet-100 text-violet-600" : "bg-slate-50 border-slate-100 text-slate-400 hover:text-slate-600"
+                    }`}
+                    title={leftCollapsed ? "Show Session List" : "Hide Session List"}
+                  >
+                    <span className="material-symbols-outlined">{leftCollapsed ? "menu_open" : "menu"}</span>
+                  </button>
+                  <div className="w-12 h-12 rounded-2xl bg-orange-50 flex items-center justify-center shrink-0">
+                    <span className="material-symbols-outlined text-orange-500" style={{ fontSize: 28 }}>person</span>
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-extrabold text-lg text-gray-900 leading-tight">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h3 className="text-base font-bold text-slate-900 truncate max-w-[200px]">
                         {selected.visitor_name || `Visitor #${selected.visitor_id?.slice(-6).toUpperCase()}`}
                       </h3>
-                      <span className="px-2 py-0.5 rounded bg-green-100 text-[10px] font-black text-green-700 uppercase">
-                        Live
-                      </span>
-                      {selected.mode === "human" && (
-                        <span className="px-2 py-0.5 rounded bg-indigo-100 text-[10px] font-black text-indigo-700 uppercase ml-1 shadow-sm">
-                          Human Mode
-                        </span>
-                      )}
+                      <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase rounded border border-emerald-100/50">Live</span>
+                      <span className="px-1.5 py-0.5 bg-violet-50 text-violet-600 text-[9px] font-black uppercase rounded border border-violet-100/50">Human Mode</span>
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                      {selected.visitor_email && (
-                        <span className="text-xs text-orange-600 font-medium">{selected.visitor_email}</span>
-                      )}
-                      {selected.visitor_phone && (
-                        <span className="text-xs text-gray-400 font-medium">{selected.visitor_phone}</span>
-                      )}
-                      {!selected.visitor_email && (
-                        <span className="text-xs text-gray-400 font-medium">{selected.page_url || "Unknown page"}</span>
-                      )}
-                      <span className="text-xs text-gray-300">·</span>
-                      <span className="text-xs text-gray-400 font-medium">Started {formatTime(selected.started_at)}</span>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
+                      <span className="truncate max-w-[250px]">{selected.page_url || "http://localhost:3001/dashboard"}</span>
+                      <span className="text-slate-300">·</span>
+                      <span>Started {formatTime(selected.started_at)}</span>
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-bold text-gray-400 mr-2">
-                    {selected.message_count ?? messages.length} messages
-                  </span>
-                  <button
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="text-right hidden xl:block mr-2">
+                    <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest leading-none mb-1">4 messages</div>
+                  </div>
+                  <button 
                     onClick={toggleMode}
-                    className={`px-4 py-2 rounded-xl text-xs font-extrabold transition-all duration-200 outline-none flex items-center gap-2 ${selected.mode === "human"
-                      ? "bg-indigo-600 text-white shadow-md hover:bg-indigo-700 ring-2 ring-indigo-500/20"
-                      : "bg-orange-100 text-orange-700 hover:bg-orange-200"
-                      }`}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-violet-100 outline-none active:scale-95"
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>
-                      {selected.mode === "human" ? "person" : "smart_toy"}
-                    </span>
-                    {selected.mode === "human" ? "Resume AI" : "Takeover"}
+                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{selected.mode === 'human' ? 'smart_toy' : 'person'}</span>
+                    {selected.mode === 'human' ? 'Resume AI' : 'Takeover'}
+                  </button>
+                  <button 
+                    onClick={() => setRightCollapsed(!rightCollapsed)}
+                    className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all border ${
+                      rightCollapsed ? "bg-violet-50 border-violet-100 text-violet-600" : "bg-slate-50 border-slate-100 text-slate-400 hover:text-slate-600"
+                    }`}
+                    title={rightCollapsed ? "Show Metadata" : "Hide Metadata"}
+                  >
+                    <span className="material-symbols-outlined">{rightCollapsed ? "dock_to_left" : "dock_to_right"}</span>
+                  </button>
+                  <button className="w-10 h-10 flex items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-xl transition-colors">
+                    <span className="material-symbols-outlined">more_horiz</span>
                   </button>
                 </div>
               </div>
 
-              {/* Messages — scrollable container with infinite scroll */}
-              <div
-                ref={scrollContainerRef}
-                className="flex-1 overflow-y-auto px-10 py-6 flex flex-col items-center"
-                onScroll={handleScroll}
-              >
-                <div className="w-full max-w-3xl flex flex-col gap-0">
-
-                  {/* Load-more spinner (top) */}
-                  {loadingMore && (
-                    <div className="flex justify-center py-4">
-                      <div className="w-5 h-5 rounded-full border-2 border-gray-200 border-t-orange-500 animate-spin" />
-                    </div>
-                  )}
-
-                  {/* Beginning-of-conversation label */}
-                  {!hasMore && messages.length > 0 && !msgLoading && (
-                    <div className="flex items-center gap-3 py-6">
-                      <div className="flex-1 h-px bg-gray-100" />
-                      <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest whitespace-nowrap">
-                        Beginning of conversation
-                      </span>
-                      <div className="flex-1 h-px bg-gray-100" />
-                    </div>
-                  )}
-
-                  {/* Initial loading skeleton */}
-                  {msgLoading ? (
-                    <div className="space-y-6 pt-4 pb-4">
-                      {[1, 2, 3, 4].map((i) => (
-                        <div key={i} className={`flex gap-4 ${i % 2 === 0 ? "flex-row-reverse" : ""}`}>
-                          <div className="w-10 h-10 rounded-xl bg-gray-100 animate-pulse shrink-0" />
-                          <div className={`space-y-2 flex-1 flex flex-col ${i % 2 === 0 ? "items-end" : "items-start"}`}>
-                            <div className={`h-12 rounded-3xl animate-pulse bg-gray-100 ${i % 2 === 0 ? "w-48" : "w-72"}`} />
-                            <div className="h-2 w-16 bg-gray-100 rounded animate-pulse" />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : messages.length === 0 ? (
-                    <div className="text-center text-gray-400 text-sm py-10">No messages in this conversation</div>
-                  ) : (
-                    <div className="space-y-8 pt-4 pb-4">
-                      {messages.map((msg) => {
-                        const isUser = msg.role === "user";
-                        const isAgent = msg.role === "agent";
-
-                        return (
-                          <div
-                            key={msg.id}
-                            className={`flex gap-5 w-full ${isUser ? "flex-row-reverse" : ""}`}
-                          >
-                            {/* Avatar */}
-                            <div
-                              className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-white shadow-md"
-                              style={{ backgroundColor: isUser ? "#191c1d" : isAgent ? "#4f46e5" : "#a93200" }}
-                            >
-                              <span
-                                className="material-symbols-outlined"
-                                style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}
-                              >
-                                {isUser ? "person" : isAgent ? "support_agent" : "smart_toy"}
-                              </span>
-                            </div>
-
-                            {/* Bubble + timestamp */}
-                            <div className={`space-y-2 flex flex-col ${isUser ? "items-end" : "items-start"} flex-1`}>
-                                <div
-                                  className={`px-6 py-4 text-sm leading-relaxed ${isUser
-                                    ? "text-white rounded-[2rem] rounded-tr-none"
-                                    : isAgent
-                                      ? "text-white rounded-[2rem] rounded-tl-none bg-indigo-600 shadow-md"
-                                      : "text-gray-700 rounded-[2rem] rounded-tl-none bg-gray-100 border border-gray-200"
-                                    }`}
-                                  style={isUser ? { backgroundColor: "#a93200" } : {}}
-                                >
-                                  {msg.content}
-                                  {msg.attachment_url && (
-                                    <div className="mt-2 pt-2 border-t border-white/20">
-                                      <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs font-medium hover:underline opacity-90">
-                                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>attach_file</span>
-                                        Attached File
-                                      </a>
-                                    </div>
-                                  )}
-                                </div>
-                              <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">
-                                {isUser ? "Visitor" : isAgent ? "Human Agent" : "Bot"} · {formatTime(msg.created_at)}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Bottom anchor for initial scroll */}
-                  <div ref={messagesEndRef} />
-                </div>
+              {/* Tabs */}
+              <div className="px-6 border-b border-slate-50 bg-white flex items-center gap-8 shrink-0">
+                <button 
+                  onClick={() => setActiveTab("conversation")}
+                  className={`py-4 text-xs font-bold border-b-2 transition-all relative ${
+                    activeTab === "conversation" ? "text-violet-600 border-violet-600" : "text-slate-400 border-transparent hover:text-slate-600"
+                  }`}
+                >
+                  Conversation
+                </button>
+                <button 
+                  onClick={() => setActiveTab("timeline")}
+                  className={`py-4 text-xs font-bold border-b-2 transition-all relative ${
+                    activeTab === "timeline" ? "text-violet-600 border-violet-600" : "text-slate-400 border-transparent hover:text-slate-600"
+                  }`}
+                >
+                  Events Timeline
+                </button>
               </div>
 
-              {/* Agent Input Bar (Only visible in human mode) */}
-              {selected.mode === "human" && (
-                <div className="px-10 py-6 bg-white border-t border-gray-100 shrink-0 shadow-[0_-10px_40px_rgba(0,0,0,0.03)] z-10">
-                  <div className="flex items-end gap-3 max-w-3xl mx-auto">
-                    <div className="flex-1 relative">
-                      <textarea
-                        value={agentInput}
-                        onChange={(e) => setAgentInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSendAgent();
-                          }
-                        }}
-                        placeholder="Type your reply as a human agent..."
-                        className="w-full resize-none bg-gray-50 border border-gray-200 rounded-3xl pl-6 pr-6 pt-4 pb-4 outline-none text-sm text-gray-800 transition-all focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10"
-                        rows={1}
-                        style={{ minHeight: "56px", maxHeight: "150px" }}
-                      />
-                    </div>
-                    <button
-                      onClick={handleSendAgent}
-                      disabled={!agentInput.trim() || sendingAgent}
-                      className="w-14 h-14 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 disabled:opacity-50 hover:bg-indigo-700 transition-all text-white shadow-lg shadow-indigo-500/30 outline-none focus:ring-4 focus:ring-indigo-500/30"
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}>
-                        send
-                      </span>
-                    </button>
+              {/* Messages */}
+              <div 
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto p-6 bg-slate-50/10 space-y-8 custom-scrollbar"
+              >
+                {msgLoading ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2">
+                    <div className="w-8 h-8 border-3 border-violet-600 border-t-transparent rounded-full animate-spin" />
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Loading Conversation</span>
                   </div>
-                  <div className="text-center mt-3">
-                    <span className="text-[10px] font-bold text-gray-400">
-                      Press <kbd className="font-mono text-gray-500 bg-gray-100 px-1 py-0.5 rounded">Enter</kbd> to send
-                    </span>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-4 py-2">
+                      <div className="flex-1 h-px bg-slate-100" />
+                      <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest px-4">Today</span>
+                      <div className="flex-1 h-px bg-slate-100" />
+                    </div>
+
+                    {messages.map((msg, i) => {
+                      const isUser = msg.role === "user";
+                      const isAgent = msg.role === "agent";
+                      const isBot = msg.role === "assistant";
+                      
+                      return (
+                        <div key={msg.id || i} className={`flex gap-4 ${isUser ? "justify-end" : "justify-start"}`}>
+                          {!isUser && (
+                            <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm ${
+                              isBot ? "bg-orange-50 text-orange-500 border border-orange-100" : "bg-violet-50 text-violet-500 border border-violet-100"
+                            }`}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
+                                {isBot ? "smart_toy" : "person"}
+                              </span>
+                            </div>
+                          )}
+                          <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} max-w-[75%]`}>
+                            <div className={`px-5 py-3.5 rounded-2xl text-[13px] leading-relaxed shadow-sm ${
+                              isUser ? "bg-violet-600 text-white rounded-tr-none shadow-violet-100" : "bg-white text-slate-700 border border-slate-100 rounded-tl-none"
+                            }`}>
+                              {msg.content}
+                            </div>
+                            <span className="text-[10px] text-slate-300 mt-1.5 font-bold uppercase tracking-wide">{formatTime(msg.created_at)}</span>
+                          </div>
+                          {isUser && (
+                            <div className="w-9 h-9 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center shrink-0 relative shadow-sm">
+                              <span className="material-symbols-outlined text-violet-500" style={{ fontSize: 20 }}>person</span>
+                              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white shadow-sm" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    
+                    {/* Event indicators */}
+                    <div className="flex justify-center py-4">
+                      <div className="px-5 py-2 bg-white border border-slate-100 rounded-2xl flex items-center gap-3 shadow-sm">
+                        <span className="material-symbols-outlined text-orange-400" style={{ fontSize: 18 }}>magic_button</span>
+                        <span className="text-[11px] font-bold text-slate-600">Assigned to Human Agent</span>
+                        <div className="w-1 h-1 rounded-full bg-slate-200" />
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">3:58 PM</span>
+                      </div>
+                    </div>
+
+                    <div ref={messagesEndRef} />
+                  </>
+                )}
+              </div>
+
+              {/* Input Area */}
+              <div className="p-6 bg-white border-t border-slate-50 shrink-0">
+                <div className="max-w-4xl mx-auto">
+                  <div className="relative group">
+                    <textarea
+                      value={agentInput}
+                      onChange={e => setAgentInput(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSendAgent())}
+                      placeholder="Type your reply as a human agent..."
+                      className="w-full bg-slate-50 border border-slate-200 rounded-[2rem] px-6 py-5 text-sm outline-none focus:border-violet-500 focus:bg-white transition-all resize-none min-h-[64px] max-h-32 shadow-inner pr-24"
+                    />
+                    <div className="absolute left-6 bottom-4 flex items-center gap-1.5">
+                      <button className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-full transition-all">
+                        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>attach_file</span>
+                      </button>
+                      <button className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-full transition-all">
+                        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>mood</span>
+                      </button>
+                      <button className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-full transition-all">
+                        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>description</span>
+                      </button>
+                    </div>
+                    <div className="absolute right-4 bottom-4 flex items-center gap-2">
+                       <div className="flex items-center overflow-hidden rounded-2xl shadow-lg shadow-violet-100">
+                          <button 
+                            onClick={handleSendAgent}
+                            disabled={!agentInput.trim() || sendingAgent}
+                            className="bg-violet-600 text-white px-5 py-3 flex items-center justify-center hover:bg-violet-700 transition-colors disabled:opacity-50"
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>send</span>
+                          </button>
+                          <button className="bg-violet-600 text-white px-2 py-3 flex items-center justify-center hover:bg-violet-700 transition-colors border-l border-violet-500/20">
+                            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>keyboard_arrow_down</span>
+                          </button>
+                       </div>
+                    </div>
                   </div>
                 </div>
-              )}
+              </div>
             </>
           )}
-        </section>
+        </main>
 
         {/* ── Right: Metadata Sidebar ── */}
-        {selected && (
-          <aside className="hidden xl:flex w-72 shrink-0 flex-col overflow-y-auto p-7 border-l border-gray-100" style={{ backgroundColor: "#f3f4f5" }}>
-            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-7">Metadata &amp; Context</h4>
+        <aside className={`transition-all duration-300 ease-in-out shrink-0 bg-white rounded-3xl border border-slate-200 overflow-y-auto custom-scrollbar shadow-sm ${
+          rightCollapsed ? "w-0 opacity-0 translate-x-full pointer-events-none p-0" : "w-[300px] p-6"
+        }`}>
+          <div className="flex items-center justify-between group cursor-pointer mb-8">
+             <div className="flex items-center gap-2.5">
+               <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 20 }}>view_quilt</span>
+               <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest">Metadata & Context</h4>
+             </div>
+             <button onClick={() => setRightCollapsed(true)} className="text-slate-400 hover:text-slate-600">
+               <span className="material-symbols-outlined">keyboard_double_arrow_right</span>
+             </button>
+          </div>
 
-            <div className="space-y-8">
-              {/* Page URL */}
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Active Page</label>
-                <div className="p-3.5 rounded-2xl bg-white text-xs font-bold truncate border border-gray-200 shadow-sm text-orange-600">
-                  {selected.page_url || "—"}
-                </div>
-              </div>
-
-              {/* Session Info */}
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Session Info</label>
-                <div className="space-y-2">
-                  {[
-                    { label: "Messages", value: selected.message_count ?? messages.length },
-                    { label: "Started", value: selected.started_at ? new Date(selected.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—" },
-                    { label: "Last Active", value: timeAgo(selected.last_message_at) + " ago" },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm"
-                    >
-                      <span className="text-gray-400 font-medium">{item.label}</span>
-                      <span className="font-black text-gray-900">{item.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Customer Info */}
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Customer Info</label>
-                <div className="space-y-2">
-                  {[
-                    { icon: "person", label: "Name", value: selected.visitor_name, color: "text-gray-900" },
-                    { icon: "mail", label: "Email", value: selected.visitor_email, color: "text-orange-600" },
-                    { icon: "phone", label: "Phone", value: selected.visitor_phone, color: "text-gray-900" },
-                    { icon: "home", label: "Address", value: selected.visitor_address, color: "text-gray-900" },
-                  ].map(({ icon, label, value, color }) => (
-                    <div key={label} className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm gap-2">
-                      <span className="text-gray-400 font-medium flex items-center gap-1.5 shrink-0">
-                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>{icon}</span>
-                        {label}
-                      </span>
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className={`font-bold truncate ${value ? color : "text-gray-300"}`}>
-                          {value || "—"}
-                        </span>
-                        {value && (
-                          <button
-                            onClick={() => navigator.clipboard.writeText(value)}
-                            title={`Copy ${label}`}
-                            className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>content_copy</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {selected.external_user_id && (
-                    <div className="flex items-center justify-between p-3.5 rounded-2xl bg-white text-[12px] border border-gray-200 shadow-sm gap-2">
-                      <span className="text-gray-400 font-medium flex items-center gap-1.5 shrink-0">
-                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>badge</span>
-                        User ID
-                      </span>
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-mono text-[10px] text-gray-500 truncate">{selected.external_user_id}</span>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(selected.external_user_id)}
-                          title="Copy User ID"
-                          className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>content_copy</span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Visitor ID */}
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Visitor ID</label>
-                <div className="flex items-center gap-2 p-3.5 rounded-2xl bg-white border border-gray-200 shadow-sm">
-                  <span className="flex-1 text-[10px] font-mono text-gray-500 break-all leading-relaxed">
-                    {selected.visitor_id}
-                  </span>
-                  <button
-                    onClick={() => copyVisitorId(selected.visitor_id)}
-                    title="Copy Visitor ID"
-                    className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors"
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>
-                      {copiedId ? "check" : "content_copy"}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Tags */}
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tags & Labels</label>
-                <div className="flex flex-wrap gap-2">
-                  {/* System Tags (Auto) */}
-                  <span className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${selected.visitor_name || selected.visitor_email
-                    ? "bg-green-100 text-green-700 border border-green-200"
-                    : "bg-gray-200 text-gray-600"
-                    }`}>
-                    {selected.visitor_name || selected.visitor_email ? "Identified" : "Anonymous"}
-                  </span>
-
-                  {/* Custom User Tags */}
-                  {(selected.tags || []).map((tag: string) => (
-                    <span key={tag} className="group px-3 py-1.5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-black uppercase tracking-widest border border-orange-200 flex items-center gap-1.5">
-                      {tag}
-                      <button
-                        onClick={async () => {
-                          const newTags = selected.tags.filter((t: string) => t !== tag);
-                          const updated = await api.updateConversationTags(selected.id, newTags);
-                          setSelected(updated);
-                          setConversations(prev => prev.map(c => c.id === updated.id ? { ...c, tags: updated.tags } : c));
-                        }}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600"
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>close</span>
-                      </button>
-                    </span>
-                  ))}
-                </div>
-
-                {/* Add Tag Input */}
-                <div className="pt-2">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Add tag..."
-                      className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-xs font-bold outline-none focus:border-orange-500 transition-all pr-10"
-                      onKeyDown={async (e) => {
-                        if (e.key === "Enter") {
-                          const val = e.currentTarget.value.trim();
-                          if (!val) return;
-                          if ((selected.tags || []).includes(val)) return;
-                          
-                          e.currentTarget.value = "";
-                          const newTags = [...(selected.tags || []), val];
-                          try {
-                            const updated = await api.updateConversationTags(selected.id, newTags);
-                            setSelected(updated);
-                            setConversations(prev => prev.map(c => c.id === updated.id ? { ...c, tags: updated.tags } : c));
-                          } catch (err) {
-                            console.error(err);
-                          }
-                        }
-                      }}
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-300" style={{ fontSize: "18px" }}>
-                      add_circle
-                    </span>
-                  </div>
-                  <p className="text-[9px] text-gray-400 mt-2 ml-1">Press Enter to add label</p>
-                </div>
+          <div className="space-y-8">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-3 block">Active Page</label>
+              <div className="flex items-center gap-2.5 p-4 bg-slate-50 border border-slate-100 rounded-2xl group hover:bg-white hover:shadow-md transition-all cursor-pointer">
+                <span className="text-[11px] text-slate-600 truncate flex-1 font-medium">{selected?.page_url || "http://localhost:3001/dashboard"}</span>
+                <span className="material-symbols-outlined text-slate-300 group-hover:text-violet-600" style={{ fontSize: 18 }}>open_in_new</span>
               </div>
             </div>
-          </aside>
-        )}
+
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] block">Session Info</label>
+              <div className="space-y-3.5">
+                 {[
+                   { icon: "chat", label: "Messages", value: selected?.message_count || messages.length },
+                   { icon: "schedule", label: "Started", value: selected?.started_at ? new Date(selected.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "May 10, 2026" },
+                   { icon: "history", label: "Last Active", value: timeAgo(selected?.last_message_at) + " ago" },
+                   { icon: "source", label: "Source", value: "Web Widget" },
+                 ].map(item => (
+                   <div key={item.label} className="flex items-center justify-between px-1">
+                     <div className="flex items-center gap-3">
+                       <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 18 }}>{item.icon}</span>
+                       <span className="text-[11px] text-slate-400 font-bold uppercase tracking-tight">{item.label}</span>
+                     </div>
+                     <span className="text-[11px] font-black text-slate-700">{item.value}</span>
+                   </div>
+                 ))}
+              </div>
+            </div>
+
+            <div className="h-px bg-slate-100" />
+
+            <div className="space-y-4">
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2.5">
+                   <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 20 }}>info</span>
+                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em]">Customer Info</label>
+                 </div>
+                 <span className="material-symbols-outlined text-slate-400 cursor-pointer hover:text-slate-600" style={{ fontSize: 18 }}>keyboard_arrow_up</span>
+               </div>
+               <div className="space-y-4 pt-1">
+                 {[
+                   { icon: "person", label: "Name", value: selected?.visitor_name || "-" },
+                   { icon: "mail", label: "Email", value: selected?.visitor_email || "-" },
+                   { icon: "call", label: "Phone", value: selected?.visitor_phone || "-" },
+                   { icon: "location_on", label: "Address", value: selected?.visitor_address || "-" },
+                 ].map(item => (
+                   <div key={item.label} className="flex items-center justify-between px-1">
+                     <div className="flex items-center gap-3">
+                       <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 18 }}>{item.icon}</span>
+                       <span className="text-[11px] text-slate-400 font-bold uppercase tracking-tight">{item.label}</span>
+                     </div>
+                     <span className="text-[11px] font-black text-slate-700">{item.value}</span>
+                   </div>
+                 ))}
+                 <button className="w-full py-3 bg-white border border-violet-200 text-violet-600 text-[11px] font-black uppercase tracking-widest rounded-2xl hover:bg-violet-50 transition-all flex items-center justify-center gap-2 mt-3 shadow-sm hover:shadow-md active:scale-[0.98]">
+                   <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+                   Add to Contacts
+                 </button>
+               </div>
+            </div>
+
+            <div className="h-px bg-slate-100" />
+
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-3 block">Visitor ID</label>
+              <div className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-100 rounded-2xl group cursor-pointer hover:bg-white hover:shadow-md transition-all">
+                <span className="text-[10px] font-mono text-slate-400 truncate flex-1">{selected?.visitor_id || "v_x1kb1n7q8s9mo2mmzwh"}</span>
+                <span className="material-symbols-outlined text-slate-300 group-hover:text-slate-500" style={{ fontSize: 16 }}>content_copy</span>
+              </div>
+            </div>
+
+            <div>
+               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-3 block">Location</label>
+               <div className="flex items-center gap-3 px-1">
+                  <div className="w-6 h-4 bg-slate-100 rounded-sm overflow-hidden flex-shrink-0 shadow-sm border border-slate-200/50">
+                     <img src="https://flagcdn.com/us.svg" alt="USA" className="w-full h-full object-cover" />
+                  </div>
+                  <span className="text-[12px] font-black text-slate-800 uppercase tracking-tight">New York, USA</span>
+               </div>
+            </div>
+
+          </div>
+        </aside>
       </div>
+
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 5px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #E2E8F0;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #CBD5E1;
+        }
+      `}</style>
     </div>
   );
 }

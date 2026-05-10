@@ -28,10 +28,15 @@ async def get_lead_config(
             collect_name=True,
             collect_email=True,
             collect_phone=False,
+            collect_company=False,
+            collect_job_title=False,
             collect_address=False,
             custom_questions=[],
             skip_if_filled=True,
             trigger_after=1,
+            display_style="inline",
+            collect_timing="after_specific_message",
+            required_field_label="* Required",
         )
     return config
 
