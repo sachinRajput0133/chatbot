@@ -3,7 +3,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user_id
+from app.core.rbac import require_permission
 from app.schemas.knowledge import DocumentOut, ManualKnowledgeRequest, ManualKnowledgeUpdate, DocumentContentOut, FAQRequest, CrawlRequest
 from app.services import knowledge_service, auth_service
 from app.workers.embedding_worker import _process_document_async
@@ -20,7 +20,7 @@ async def _get_tenant(user_id: str, db: AsyncSession):
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("knowledge", "create")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)
@@ -40,7 +40,7 @@ async def upload_document(
 async def add_manual_knowledge(
     data: ManualKnowledgeRequest,
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("knowledge", "create")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)
@@ -56,7 +56,7 @@ async def add_manual_knowledge(
 
 @router.get("/", response_model=list[DocumentOut])
 async def list_documents(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("knowledge", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)
@@ -66,7 +66,7 @@ async def list_documents(
 @router.get("/{doc_id}/content", response_model=DocumentContentOut)
 async def get_document_content(
     doc_id: uuid.UUID,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("knowledge", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)
@@ -78,7 +78,7 @@ async def update_manual_document(
     doc_id: uuid.UUID,
     data: ManualKnowledgeUpdate,
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("knowledge", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)
@@ -91,7 +91,7 @@ async def update_manual_document(
 async def add_faq_knowledge(
     data: FAQRequest,
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("knowledge", "create")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)
@@ -109,7 +109,7 @@ async def add_faq_knowledge(
 async def crawl_url(
     data: CrawlRequest,
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("knowledge", "create")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)
@@ -125,7 +125,7 @@ async def crawl_url(
 @router.delete("/{doc_id}", status_code=204)
 async def delete_document(
     doc_id: uuid.UUID,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("knowledge", "delete")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)

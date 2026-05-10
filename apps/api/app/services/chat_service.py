@@ -37,7 +37,13 @@ PLAN_LIMITS = {
 DEFAULT_SYSTEM_PROMPT = """You are a helpful customer support assistant for {business_name}.
 Answer questions based ONLY on the provided context.
 If the answer is not in the context, say "I don't have that information. Please contact us directly."
-Keep responses concise and friendly. Do not make up information."""
+
+FORMATTING INSTRUCTIONS:
+- Use **bold text** for important terms or emphasis.
+- Use bullet points (- or *) for lists of items or features.
+- Keep responses concise and professional.
+- Do not use HTML tags; use standard Markdown only.
+"""
 
 REPHRASE_PROMPT = """Given the conversation history and a new user message, rephrase the user message into a standalone search query for a knowledge base search.
 If the message is already a standalone query, return it as is.
@@ -79,7 +85,13 @@ def _build_system_prompt(widget: "WidgetConfig | None", business_name: str) -> s
             "Answer questions based ONLY on the provided context. "
             "If the answer is not in the context, say \"I don't have that information — "
             f"please contact us{f' at {widget.company_email}' if widget.company_email else ' directly'}.\" "
-            "Keep responses concise and friendly. Do not make up information."
+            "Do not make up information."
+        )
+        lines.append(
+            "\nFORMATTING INSTRUCTIONS:\n"
+            "- Use **bold text** for emphasis.\n"
+            "- Use bullet points (- or *) for lists.\n"
+            "- Keep responses professional and well-structured."
         )
         prompt = "\n".join(lines)
     else:

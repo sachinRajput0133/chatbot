@@ -5,7 +5,7 @@ import uuid
 from typing import List
 
 from app.core.database import get_db
-from app.core.security import get_current_user_id
+from app.core.rbac import require_permission
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.models.goal import GoalConfig, GoalCompletion, GoalType
@@ -31,7 +31,7 @@ class GoalResponse(GoalCreate):
 @router.get("", response_model=List[GoalResponse])
 async def list_goals(
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(require_permission("goals", "view"))
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
     
@@ -62,7 +62,7 @@ async def list_goals(
 async def create_goal(
     goal_in: GoalCreate,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(require_permission("goals", "create"))
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
     
@@ -91,7 +91,7 @@ async def create_goal(
 async def delete_goal(
     goal_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    user_id: str = Depends(get_current_user_id)
+    user_id: str = Depends(require_permission("goals", "delete"))
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
     

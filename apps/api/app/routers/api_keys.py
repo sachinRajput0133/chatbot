@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.security import get_current_user_id
+from app.core.rbac import require_permission
 from app.models.tenant import Tenant
 from app.models.api_key import ApiKey
 from app.schemas.api_key import ApiKeyCreate, ApiKeyOut, ApiKeyCreateOut
@@ -24,7 +24,7 @@ def _hash_api_key(key: str) -> str:
 
 @router.get("", response_model=list[ApiKeyOut])
 async def list_api_keys(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("developer", "view")),
     db: AsyncSession = Depends(get_db)
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
@@ -35,7 +35,7 @@ async def list_api_keys(
 @router.post("", response_model=ApiKeyCreateOut)
 async def create_api_key(
     data: ApiKeyCreate,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("developer", "manage")),
     db: AsyncSession = Depends(get_db)
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
@@ -67,7 +67,7 @@ async def create_api_key(
 @router.delete("/{key_id}")
 async def delete_api_key(
     key_id: uuid.UUID,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("developer", "manage")),
     db: AsyncSession = Depends(get_db)
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)

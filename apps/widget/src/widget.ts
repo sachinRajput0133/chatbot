@@ -436,8 +436,24 @@ const i18n: Record<string, Record<string, string>> = {
       }
       #cb-lead-form .cb-lf-error { font-size: 12px; color: #e53e3e; }
 
-      @media (max-width: 480px) {
-        #cb-panel { width: calc(100vw - 24px); bottom: 88px; }
+      @media (max-width: 640px) {
+        #cb-panel {
+          width: 100% !important;
+          height: 100% !important;
+          max-height: 100% !important;
+          bottom: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          border-radius: 0 !important;
+          margin: 0 !important;
+          border: none !important;
+        }
+        #cb-panel.cb-hidden {
+          transform: translateY(100%);
+        }
+        #cb-bubble.cb-hidden-mobile {
+          display: none !important;
+        }
       }
     `;
     document.head.appendChild(style);
@@ -565,7 +581,7 @@ const i18n: Record<string, Record<string, string>> = {
                 ${t("view_recent")}
               </button>
             </div>
-            <button onclick="document.getElementById('cb-panel').classList.add('cb-hidden')" aria-label="Close">
+            <button id="cb-close-btn" aria-label="Close">
               <svg fill="none" height="20" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="20" xmlns="http://www.w3.org/2000/svg"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg>
             </button>
           </div>
@@ -596,7 +612,7 @@ const i18n: Record<string, Record<string, string>> = {
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
             <div style="font-weight:600; font-size:14px; flex:1; text-align:center;">${t("recent_chats")}</div>
-            <button onclick="document.getElementById('cb-panel').classList.add('cb-hidden')" aria-label="Close">
+            <button id="cb-hi-close" aria-label="Close">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg>
             </button>
           </div>
@@ -612,6 +628,16 @@ const i18n: Record<string, Record<string, string>> = {
     `;
 
     document.body.appendChild(container);
+
+    function closePanel() {
+      isOpen = false;
+      panel.classList.add("cb-hidden");
+      bubble.classList.remove("cb-hidden-mobile");
+      bubble.innerHTML = `<svg viewBox="0 0 24 24" style="fill:white"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>`;
+    }
+
+    document.getElementById("cb-close-btn")!.addEventListener("click", closePanel);
+    document.getElementById("cb-hi-close")!.addEventListener("click", closePanel);
 
     const bubble = document.getElementById("cb-bubble")!;
     const panel = document.getElementById("cb-panel")!;
@@ -726,6 +752,7 @@ const i18n: Record<string, Record<string, string>> = {
     bubble.addEventListener("click", () => {
       isOpen = !isOpen;
       panel.classList.toggle("cb-hidden", !isOpen);
+      bubble.classList.toggle("cb-hidden-mobile", isOpen);
 
       if (isOpen) {
         // First open: inject lead form if needed
@@ -936,6 +963,23 @@ const i18n: Record<string, Record<string, string>> = {
     div.className = `cb-msg cb-${role}`;
     
     let displayHtml = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    
+    // Bold: **text**
+    displayHtml = displayHtml.replace(/\*\*([^\*]+)\*\*/g, '<b>$1</b>');
+    
+    // Italic: *text* or _text_
+    displayHtml = displayHtml.replace(/\*([^\*]+)\*/g, '<i>$1</i>');
+    displayHtml = displayHtml.replace(/_([^_]+)_/g, '<i>$1</i>');
+
+    // Lists: Lines starting with - or * or • followed by space
+    displayHtml = displayHtml.split('\n').map(line => {
+      const trimmed = line.trim();
+      if (/^[-*•]\s+/.test(trimmed)) {
+        return `<div style="margin-left: 12px; display: flex; gap: 8px;"><span style="flex-shrink:0">•</span><span>${trimmed.substring(2)}</span></div>`;
+      }
+      return line;
+    }).join('\n');
+
     displayHtml = displayHtml.replace(/\n/g, "<br>");
     
     // Parse Markdown links [text](url) into actual HTML links/buttons

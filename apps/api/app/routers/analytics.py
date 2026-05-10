@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 
 from app.core.database import get_db
-from app.core.security import get_current_user_id
+from app.core.rbac import require_permission
 from app.models.conversation import WebConversation, WebMessage
 from app.services import auth_service
 
@@ -27,7 +27,7 @@ class AnalyticsSummary(BaseModel):
 
 @router.get("/summary", response_model=AnalyticsSummary)
 async def get_summary(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("analytics", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)

@@ -32,6 +32,10 @@ class UserOut(BaseModel):
     tenant_id: str
     is_google_user: bool = False
     created_at: datetime | None = None
+    role_id: str | None = None
+    role_name: str | None = None
+    must_change_password: bool = False
+    permissions: list[str] = []
 
     class Config:
         from_attributes = True
@@ -68,4 +72,8 @@ class UpdateProfileResponse(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
+    new_password: str
+
+
+class CompleteInvitationRequest(BaseModel):
     new_password: str

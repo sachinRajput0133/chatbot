@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user_id
+from app.core.rbac import require_permission
 from app.schemas.lead_capture import LeadCaptureConfigOut, LeadCaptureConfigUpdate
 from app.services import auth_service, lead_capture_service
 
@@ -16,7 +16,7 @@ async def _get_tenant(user_id: str, db: AsyncSession):
 
 @router.get("/config", response_model=LeadCaptureConfigOut)
 async def get_lead_config(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("lead_capture", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)
@@ -39,7 +39,7 @@ async def get_lead_config(
 @router.put("/config", response_model=LeadCaptureConfigOut)
 async def update_lead_config(
     data: LeadCaptureConfigUpdate,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("lead_capture", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)

@@ -16,7 +16,7 @@ from app.models.widget import WidgetConfig
 from app.core.security import hash_password, verify_password, create_access_token
 from app.schemas.auth import SignupRequest, LoginRequest, GoogleAuthRequest, UpdateProfileRequest, ChangePasswordRequest
 from app.core.config import settings
-from app.services import email_service
+from app.services import email_service, role_service
 
 # google-auth: verifies ID token locally using Google's cached public keys (no outbound HTTP call)
 from google.oauth2 import id_token as google_id_token
@@ -54,6 +54,17 @@ def _get_google_user_info(credential: str) -> dict:
     return idinfo
 
 
+def _build_token(user: User) -> str:
+    extras = {
+        "tenant_id": str(user.tenant_id),
+        "role": user.role.value if hasattr(user.role, "value") else str(user.role),
+        "must_change_password": user.must_change_password,
+    }
+    if user.role_id:
+        extras["role_id"] = str(user.role_id)
+    return create_access_token(str(user.id), extras)
+
+
 async def signup(data: SignupRequest, db: AsyncSession) -> tuple[User, str]:
     # Check email not taken
     existing = await db.execute(select(User).where(User.email == data.email))
@@ -74,7 +85,10 @@ async def signup(data: SignupRequest, db: AsyncSession) -> tuple[User, str]:
     widget = WidgetConfig(tenant_id=tenant.id)
     db.add(widget)
 
-    # Create owner user
+    # Seed default roles for the tenant
+    await role_service.seed_default_roles(tenant.id, db)
+
+    # Create owner user (system role = owner; bypasses permission checks)
     user = User(
         tenant_id=tenant.id,
         email=data.email,
@@ -91,8 +105,7 @@ async def signup(data: SignupRequest, db: AsyncSession) -> tuple[User, str]:
         bot_id=str(tenant.bot_id),
     )
 
-    token = create_access_token(str(user.id), {"tenant_id": str(tenant.id), "role": user.role})
-    return user, token
+    return user, _build_token(user)
 
 
 async def login(data: LoginRequest, db: AsyncSession) -> tuple[User, str]:
@@ -101,8 +114,10 @@ async def login(data: LoginRequest, db: AsyncSession) -> tuple[User, str]:
     if not user or not user.password_hash or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    token = create_access_token(str(user.id), {"tenant_id": str(user.tenant_id), "role": user.role})
-    return user, token
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="This account has been deactivated")
+
+    return user, _build_token(user)
 
 
 async def google_auth(data: GoogleAuthRequest, db: AsyncSession) -> tuple[User, str]:
@@ -141,6 +156,8 @@ async def google_auth(data: GoogleAuthRequest, db: AsyncSession) -> tuple[User, 
 
             db.add(WidgetConfig(tenant_id=tenant.id))
 
+            await role_service.seed_default_roles(tenant.id, db)
+
             user = User(
                 tenant_id=tenant.id,
                 email=email,
@@ -148,6 +165,9 @@ async def google_auth(data: GoogleAuthRequest, db: AsyncSession) -> tuple[User, 
                 role=UserRole.owner,
             )
             db.add(user)
+
+    if user is not None and not user.is_active:
+        raise HTTPException(status_code=403, detail="This account has been deactivated")
 
     await db.commit()
     await db.refresh(user)
@@ -162,8 +182,7 @@ async def google_auth(data: GoogleAuthRequest, db: AsyncSession) -> tuple[User, 
                 bot_id=str(new_tenant.bot_id),
             )
 
-    token = create_access_token(str(user.id), {"tenant_id": str(user.tenant_id), "role": user.role})
-    return user, token
+    return user, _build_token(user)
 
 
 async def get_user_with_tenant(user_id: str, db: AsyncSession) -> tuple[User, Tenant]:

@@ -1,5 +1,6 @@
 from .tenant import Tenant, Plan
 from .user import User, UserRole
+from .role import Role, RolePermission
 from .knowledge import KnowledgeDocument, KnowledgeChunk, DocumentType, DocumentStatus
 from .widget import WidgetConfig, WidgetPosition
 from .conversation import WebConversation, WebMessage, MessageRole
@@ -11,6 +12,7 @@ from app.models.api_key import ApiKey
 __all__ = [
     "Tenant", "Plan",
     "User", "UserRole",
+    "Role", "RolePermission",
     "KnowledgeDocument", "KnowledgeChunk", "DocumentType", "DocumentStatus",
     "WidgetConfig", "WidgetPosition",
     "WebConversation", "WebMessage", "MessageRole",

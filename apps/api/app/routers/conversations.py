@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 
 from app.core.database import get_db
-from app.core.security import get_current_user_id
+from app.core.rbac import require_permission
 from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.schemas.conversation import ConversationOut, MessageOut, MessagesPage, SetModeIn, AgentReplyIn, UpdateTagsIn
 from app.services import auth_service
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 async def list_conversations(
     page: int = Query(1, ge=1),
     limit: int = Query(20, le=100),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("conversations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
@@ -69,7 +69,7 @@ async def list_conversations(
 
 @router.get("/unread-count")
 async def get_unread_count(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("conversations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     """Return count of conversations with unread messages."""
@@ -90,7 +90,7 @@ async def get_unread_count(
 @router.get("/{conversation_id}", response_model=ConversationOut)
 async def get_conversation(
     conversation_id: uuid.UUID,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("conversations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
@@ -141,7 +141,7 @@ async def get_messages(
     conversation_id: uuid.UUID,
     limit: int = Query(30, ge=1, le=100),
     before: uuid.UUID | None = Query(None, description="Cursor: fetch messages older than this message ID"),
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("conversations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -215,7 +215,7 @@ async def get_messages(
 async def set_conversation_mode(
     conversation_id: uuid.UUID,
     payload: SetModeIn,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("conversations", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Toggle a conversation between AI and human mode."""
@@ -251,7 +251,7 @@ async def agent_reply(
     conversation_id: uuid.UUID,
     payload: AgentReplyIn,
     background_tasks: BackgroundTasks,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("conversations", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Save an agent reply and broadcast it to the widget via Redis pub/sub."""
@@ -308,7 +308,7 @@ async def agent_reply(
 @router.post("/{conversation_id}/read", status_code=204)
 async def mark_as_read(
     conversation_id: uuid.UUID,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("conversations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     """Mark a conversation as read by the current agent."""
@@ -332,7 +332,7 @@ async def mark_as_read(
 async def update_conversation_tags(
     conversation_id: uuid.UUID,
     payload: UpdateTagsIn,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("conversations", "edit")),
     db: AsyncSession = Depends(get_db),
 ):
     """Update tags/labels for a conversation."""

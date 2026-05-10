@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.security import get_current_user_id
+from app.core.rbac import require_permission
 from app.models.subscription import Subscription
 from app.schemas.billing import (
     CreateCheckoutRequest,
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/billing", tags=["billing"])
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(
     data: CreateCheckoutRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("billing", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
@@ -30,7 +30,7 @@ async def create_checkout(
 
 @router.get("/subscription", response_model=SubscriptionOut | None)
 async def get_subscription(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("billing", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
@@ -49,7 +49,7 @@ async def get_subscription(
 
 @router.post("/cancel")
 async def cancel_subscription(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("billing", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
@@ -62,7 +62,7 @@ async def cancel_subscription(
 @router.post("/verify-razorpay")
 async def verify_razorpay_payment(
     data: VerifyRazorpayRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("billing", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
@@ -86,7 +86,7 @@ async def razorpay_webhook(
 @router.post("/verify-dodo")
 async def verify_dodo_payment(
     data: VerifyDodoRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("billing", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """

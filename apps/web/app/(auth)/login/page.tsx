@@ -78,51 +78,53 @@ export default function LoginPage() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col md:flex-row min-h-screen">
-        {/* Left Panel: Hero Image + Headline */}
-        <section className="relative w-full md:w-1/2 min-h-64 md:min-h-screen overflow-hidden">
-          <div className="absolute inset-0 bg-black/30 z-10" />
+      <main className="flex-1 flex flex-col md:flex-row">
+        {/* Left Panel: Hero Image + Headline — Hidden on small mobile for better focus */}
+        <section className="relative hidden md:flex w-full md:w-1/2 min-h-[400px] md:min-h-screen overflow-hidden items-center justify-center">
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-600/40 to-black/60 z-10" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1200&q=80"
             alt="AI technology workspace"
-            className="absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover scale-105"
           />
-          <div className="relative z-20 h-full flex flex-col justify-center px-8 md:px-16 lg:px-24 pt-24 pb-16">
+          <div className="relative z-20 h-full flex flex-col justify-center px-12 lg:px-24 py-24">
             <div className="max-w-xl">
-              <h1 className="text-white text-5xl md:text-6xl leading-none font-extrabold tracking-tighter mb-6">
+              <h1 className="text-white text-6xl lg:text-7xl leading-[1.1] font-extrabold tracking-tighter mb-8">
                 Power your website{" "}
-                <span style={{ color: "#ffb59e" }}>with Intelligent AI.</span>
+                <span className="text-orange-400">with Intelligent AI.</span>
               </h1>
-              <p className="text-white/90 text-lg md:text-xl font-medium max-w-md">
+              <p className="text-white/80 text-xl font-medium max-w-md leading-relaxed">
                 The ultimate engine for customer engagement, automated support, and seamless website integration.
               </p>
             </div>
+            
+            {/* Decorative bar */}
+            <div className="mt-12 w-24 h-1 bg-orange-500 rounded-full" />
           </div>
-          {/* Decorative bar */}
-          <div className="absolute bottom-16 left-0 w-32 h-2 z-20" style={{ backgroundColor: "#F15A24" }} />
         </section>
 
         {/* Right Panel: Login Form */}
-        <section className="w-full md:w-1/2 flex items-center justify-center bg-white px-6 py-16 md:p-12 lg:p-24">
+        <section className="w-full md:w-1/2 flex items-center justify-center bg-white px-6 py-20 md:p-12 lg:p-24 relative">
           <div className="w-full max-w-md space-y-10">
-            <div className="space-y-3">
-              <h2 className="text-5xl font-extrabold text-gray-900 tracking-tight leading-tight">Welcome Back</h2>
-              <p className="text-gray-500 font-medium">
+            <div className="space-y-4">
+              <h2 className="text-5xl font-black text-gray-900 tracking-tight leading-tight">Welcome Back</h2>
+              <p className="text-gray-500 font-medium text-lg">
                 Enter your credentials to access your business intelligence dashboard.
               </p>
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-100 text-red-600 text-sm p-4 rounded-xl flex items-center gap-2">
-                <span>⚠</span> {error}
+              <div className="bg-red-50 border border-red-100 text-red-600 text-sm p-5 rounded-2xl flex items-center gap-3 animate-shake">
+                <span className="material-symbols-outlined text-lg">error</span>
+                <span className="font-semibold">{error}</span>
               </div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Work Email */}
-              <div className="space-y-2">
-                <label className="block text-sm font-bold text-gray-900 tracking-wide" htmlFor="email">
+              <div className="space-y-2.5">
+                <label className="block text-sm font-bold text-gray-900 tracking-wide ml-1" htmlFor="email">
                   Work Email
                 </label>
                 <input
@@ -133,20 +135,17 @@ export default function LoginPage() {
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   placeholder="name@company.com"
-                  className="w-full px-5 py-4 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:border-transparent transition-all outline-none text-gray-900 placeholder:text-gray-400"
-                  style={{ focusRingColor: "#F15A24" } as React.CSSProperties}
-                  onFocus={(e) => { e.target.style.boxShadow = "0 0 0 2px #F15A24"; e.target.style.borderColor = "#F15A24"; }}
-                  onBlur={(e) => { e.target.style.boxShadow = ""; e.target.style.borderColor = "#e5e7eb"; }}
+                  className="w-full px-6 py-4.5 bg-gray-50 border border-gray-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all outline-none text-gray-900 placeholder:text-gray-400"
                 />
               </div>
 
               {/* Password */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-center ml-1">
                   <label className="block text-sm font-bold text-gray-900 tracking-wide" htmlFor="password">
                     Password
                   </label>
-                  <a className="text-xs font-bold transition-colors hover:opacity-80" style={{ color: "#F15A24" }} href="#">
+                  <a className="text-xs font-bold text-orange-600 transition-colors hover:text-orange-700" href="#">
                     Forgot Password?
                   </a>
                 </div>
@@ -158,38 +157,32 @@ export default function LoginPage() {
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   placeholder="••••••••"
-                  className="w-full px-5 py-4 bg-white border border-gray-200 rounded-xl transition-all outline-none text-gray-900"
-                  onFocus={(e) => { e.target.style.boxShadow = "0 0 0 2px #F15A24"; e.target.style.borderColor = "#F15A24"; }}
-                  onBlur={(e) => { e.target.style.boxShadow = ""; e.target.style.borderColor = "#e5e7eb"; }}
+                  className="w-full px-6 py-4.5 bg-gray-50 border border-gray-200 rounded-2xl focus:bg-white focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 transition-all outline-none text-gray-900"
                 />
               </div>
 
               {/* Sign In Button */}
-              <div className="space-y-5 pt-2">
+              <div className="space-y-6 pt-2">
                 <button
                   type="submit"
                   disabled={isLoading || googleLoading}
-                  className="w-full text-white py-5 px-8 rounded-full font-bold text-lg flex items-center justify-center gap-3 transition-all active:scale-95 disabled:opacity-60"
+                  className="w-full text-white py-5 px-8 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 shadow-xl shadow-orange-600/20 transition-all active:scale-[0.98] disabled:opacity-60"
                   style={{ backgroundColor: "#F15A24" }}
-                  onMouseEnter={(e) => { if (!isLoading) (e.target as HTMLButtonElement).style.filter = "brightness(1.1)"; }}
-                  onMouseLeave={(e) => { (e.target as HTMLButtonElement).style.filter = ""; }}
                 >
                   {isLoading ? "Signing in…" : "Sign In"}
                   {!isLoading && (
-                    <span className="material-symbols-outlined text-2xl" style={{ fontFamily: "'Material Symbols Outlined'" }}>
-                      arrow_forward
-                    </span>
+                    <span className="material-symbols-outlined text-2xl">arrow_forward</span>
                   )}
                 </button>
 
                 {/* OR divider */}
-                <div className="relative flex items-center py-1">
+                <div className="relative flex items-center py-2">
                   <div className="flex-grow border-t border-gray-100" />
-                  <span className="flex-shrink mx-4 text-xs font-bold text-gray-400 tracking-widest">OR CONTINUE WITH</span>
+                  <span className="flex-shrink mx-4 text-[10px] font-black text-gray-400 tracking-[0.2em] uppercase">OR CONTINUE WITH</span>
                   <div className="flex-grow border-t border-gray-100" />
                 </div>
 
-                {/* Hidden native GoogleLogin — triggered programmatically */}
+                {/* Hidden native GoogleLogin */}
                 <div ref={googleButtonRef} className="absolute opacity-0 pointer-events-none w-0 h-0 overflow-hidden">
                   <GoogleLogin
                     onSuccess={handleGoogleSuccess}
@@ -206,13 +199,10 @@ export default function LoginPage() {
                   type="button"
                   onClick={triggerGoogleLogin}
                   disabled={isLoading || googleLoading}
-                  className="w-full flex items-center justify-center gap-3 py-4 px-6 bg-white border-2 border-gray-200 rounded-xl font-semibold text-gray-700 text-base hover:border-gray-300 hover:bg-gray-50 hover:shadow-sm active:scale-[0.99] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full flex items-center justify-center gap-3 py-4.5 px-6 bg-white border border-gray-200 rounded-2xl font-bold text-gray-700 text-base hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-[0.98] disabled:opacity-50"
                 >
                   {googleLoading ? (
-                    <svg className="w-5 h-5 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
+                    <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
                   ) : (
                     <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -226,10 +216,10 @@ export default function LoginPage() {
               </div>
             </form>
 
-            <div className="text-center">
+            <div className="text-center pt-4">
               <p className="text-gray-500 font-medium">
                 Need an account?{" "}
-                <Link href="/signup" className="font-bold hover:underline ml-1" style={{ color: "#F15A24" }}>
+                <Link href="/signup" className="font-bold text-orange-600 hover:underline ml-1">
                   Create one free
                 </Link>
               </p>
@@ -238,16 +228,16 @@ export default function LoginPage() {
         </section>
       </main>
 
-      {/* Fixed Footer */}
-      <footer className="fixed bottom-0 w-full flex justify-between items-center px-8 py-4 z-50 bg-transparent">
-        <div className="flex items-center gap-4">
-          <span className="font-bold text-gray-900 text-lg">Lumina</span>
-          <span className="text-sm text-gray-400 hidden sm:block">© 2024 Lumina. Intelligent Business Automation.</span>
+      {/* Footer — Responsive Positioning */}
+      <footer className="w-full flex flex-col md:flex-row justify-between items-center px-8 py-8 md:py-6 bg-white border-t border-gray-50 md:fixed md:bottom-0 md:bg-transparent md:border-none z-50">
+        <div className="flex items-center gap-4 mb-4 md:mb-0">
+          <span className="font-black text-gray-900 text-xl tracking-tighter">Lumina</span>
+          <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest hidden sm:block">© 2024 Intelligent Business Automation.</span>
         </div>
-        <nav className="flex gap-6">
-          <a className="text-sm text-gray-400 hover:text-gray-900 transition-colors" href="#">Privacy</a>
-          <a className="text-sm text-gray-400 hover:text-gray-900 transition-colors" href="#">Terms</a>
-          <a className="text-sm text-gray-400 hover:text-gray-900 transition-colors" href="#">Security</a>
+        <nav className="flex gap-8">
+          <a className="text-xs font-bold text-gray-400 hover:text-gray-900 transition-colors uppercase tracking-widest" href="#">Privacy</a>
+          <a className="text-xs font-bold text-gray-400 hover:text-gray-900 transition-colors uppercase tracking-widest" href="#">Terms</a>
+          <a className="text-xs font-bold text-gray-400 hover:text-gray-900 transition-colors uppercase tracking-widest" href="#">Security</a>
         </nav>
       </footer>
     </div>

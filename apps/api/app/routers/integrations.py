@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.encryption import encrypt_secret, decrypt_secret, InvalidToken
-from app.core.security import get_current_user_id
+from app.core.rbac import require_permission
 from app.models.user import User
 from app.models.tenant import Tenant
 from app.schemas.integrations import (
@@ -71,7 +71,7 @@ def _mask(url: str) -> str:
 
 @router.get("/slack", response_model=SlackIntegrationStatus)
 async def get_slack_status(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -90,7 +90,7 @@ async def get_slack_status(
 @router.put("/slack", response_model=SlackIntegrationStatus)
 async def set_slack_webhook(
     data: SetSlackWebhookRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -102,7 +102,7 @@ async def set_slack_webhook(
 
 @router.delete("/slack", status_code=204)
 async def delete_slack_webhook(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -115,7 +115,7 @@ async def delete_slack_webhook(
 async def test_slack_webhook(
     request: Request,
     data: TestSlackRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -158,7 +158,7 @@ async def test_slack_webhook(
 
 @router.get("/email-notifications", response_model=NotificationEmailsConfig)
 async def get_notification_emails(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -172,7 +172,7 @@ async def get_notification_emails(
 @router.put("/email-notifications", response_model=NotificationEmailsConfig)
 async def set_notification_emails(
     data: SetNotificationEmailsRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -191,7 +191,7 @@ async def set_notification_emails(
 @limiter.limit("5/minute")
 async def test_notification_email(
     request: Request,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Send a sample escalation-style email to the currently configured primary + CCs."""
@@ -237,7 +237,7 @@ async def test_notification_email(
 
 @router.get("/alert-keywords", response_model=AlertKeywordsConfig)
 async def get_alert_keywords(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     """Return the tenant's configured alert keywords."""
@@ -248,7 +248,7 @@ async def get_alert_keywords(
 @router.put("/alert-keywords", response_model=AlertKeywordsConfig)
 async def set_alert_keywords(
     data: SetAlertKeywordsRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     """Update the tenant's alert keywords. An empty list disables keyword alerts."""
@@ -271,7 +271,7 @@ def _mask_id(id_str: str) -> str:
 
 @router.get("/whatsapp", response_model=WhatsAppIntegrationStatus)
 async def get_whatsapp_status(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -293,7 +293,7 @@ async def get_whatsapp_status(
 @router.put("/whatsapp", response_model=WhatsAppIntegrationStatus)
 async def set_whatsapp_config(
     data: SetWhatsAppConfigRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -310,7 +310,7 @@ async def set_whatsapp_config(
 
 @router.delete("/whatsapp", status_code=204)
 async def delete_whatsapp_config(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -322,7 +322,7 @@ async def delete_whatsapp_config(
 
 @router.get("/whatsapp/recipients", response_model=WhatsAppRecipientsConfig)
 async def get_whatsapp_recipients(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -332,7 +332,7 @@ async def get_whatsapp_recipients(
 @router.put("/whatsapp/recipients", response_model=WhatsAppRecipientsConfig)
 async def set_whatsapp_recipients(
     data: SetWhatsAppRecipientsRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -347,7 +347,7 @@ async def set_whatsapp_recipients(
 async def test_whatsapp_config(
     request: Request,
     data: TestWhatsAppRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -395,7 +395,7 @@ async def test_whatsapp_config(
 
 @router.get("/zapier", response_model=ZapierIntegrationStatus)
 async def get_zapier_status(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -416,7 +416,7 @@ async def get_zapier_status(
 @router.put("/zapier", response_model=ZapierIntegrationStatus)
 async def set_zapier_webhook(
     data: SetZapierWebhookRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -431,7 +431,7 @@ async def set_zapier_webhook(
 
 @router.delete("/zapier", status_code=204)
 async def delete_zapier_webhook(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)
@@ -444,7 +444,7 @@ async def delete_zapier_webhook(
 async def test_zapier_webhook(
     request: Request,
     data: TestZapierRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_permission("integrations", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant_for_user(user_id, db)

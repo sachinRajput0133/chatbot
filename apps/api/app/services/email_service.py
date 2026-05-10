@@ -128,6 +128,60 @@ def send_welcome(*, to: str, business_name: str, bot_id: str) -> None:
     _send(to=to, subject=f"Welcome to ChatBot AI — your bot is ready 🚀", html=_base(content))
 
 
+def send_invitation(
+    *,
+    to: str,
+    business_name: str,
+    inviter_name: str,
+    temp_password: str,
+    login_url: str,
+    role_name: str,
+) -> None:
+    """Sent when a tenant owner invites a new user. Contains temp password.
+
+    The invited user must change their password on first login. We do NOT log
+    the temp password — only the recipient and role.
+    """
+    import html as _html
+    safe_business = _html.escape(business_name)
+    safe_inviter = _html.escape(inviter_name)
+    safe_role = _html.escape(role_name)
+    safe_password = _html.escape(temp_password)
+    safe_email = _html.escape(to)
+
+    content = f"""
+<h2>You've been invited to {safe_business}</h2>
+<p><strong>{safe_inviter}</strong> has added you to {safe_business} on ChatBot AI as
+   <strong>{safe_role}</strong>.</p>
+
+<p>Use the credentials below to sign in. You'll be asked to set a new password
+   on your first login — the temporary one stops working after that.</p>
+
+<table style="margin:20px 0;border-collapse:separate;border-spacing:0;background:#f9fafb;border-radius:8px;padding:16px;">
+  <tr>
+    <td style="padding:6px 12px;color:#6b7280;font-size:13px;">Email</td>
+    <td style="padding:6px 12px;font-family:ui-monospace,Menlo,monospace;font-size:14px;color:#111827;">{safe_email}</td>
+  </tr>
+  <tr>
+    <td style="padding:6px 12px;color:#6b7280;font-size:13px;">Temporary password</td>
+    <td style="padding:6px 12px;font-family:ui-monospace,Menlo,monospace;font-size:14px;color:#111827;">
+      <code style="background:#fff;border:1px solid #e5e7eb;padding:4px 10px;border-radius:6px;">{safe_password}</code>
+    </td>
+  </tr>
+</table>
+
+<a href="{login_url}" class="btn">Sign in to ChatBot AI →</a>
+
+<hr class="divider">
+<p style="color:#6b7280;font-size:13px;">
+  If you weren't expecting this invitation, you can safely ignore this email.
+  The temporary password expires the moment you complete sign-in.
+</p>
+"""
+    logger.info(f"[Email] Sending invitation to {to} (role={role_name})")
+    _send(to=to, subject=f"You're invited to join {business_name} on ChatBot AI", html=_base(content))
+
+
 def send_plan_upgraded(*, to: str, business_name: str, plan: str, messages_limit: int) -> None:
     """Sent when a user upgrades to a paid plan."""
     plan_label = plan.capitalize()
