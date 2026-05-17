@@ -27,14 +27,24 @@ const EmbedView = dynamic(() => import("./embed/EmbedView"), {
   ssr: false,
   loading: () => <SubTabLoading />,
 });
+const IntegrationsView = dynamic(() => import("./integrations/IntegrationsView"), {
+  ssr: false,
+  loading: () => <SubTabLoading />,
+});
+const DeveloperView = dynamic(() => import("./developer/DeveloperView"), {
+  ssr: false,
+  loading: () => <SubTabLoading />,
+});
 
-type TabKey = "conversations" | "knowledge" | "customize" | "leads" | "embed" | "clients" | "my-team";
+type TabKey = "conversations" | "knowledge" | "customize" | "leads" | "embed" | "integrations" | "developer" | "clients" | "my-team";
 
 const TABS: { id: TabKey; label: string; icon?: string }[] = [
   { id: "knowledge", label: "Upload Knowledge", icon: "upload_file" },
   { id: "customize", label: "Customize Bot", icon: "tune" },
   { id: "leads", label: "Lead Capture", icon: "person_add" },
   { id: "embed", label: "Get Embed Code", icon: "code" },
+  { id: "integrations", label: "Integrations", icon: "hub" },
+  { id: "developer", label: "Developer API", icon: "api" },
   { id: "conversations", label: "Conversations" },
 ];
 
@@ -198,6 +208,8 @@ export default function DashboardPage() {
         {tab === "customize" && <div className="bg-gray-50/40 p-6"><CustomizeView embedded /></div>}
         {tab === "leads" && <div className="bg-gray-50/40 p-6"><LeadCaptureView embedded /></div>}
         {tab === "embed" && <div className="bg-gray-50/40 p-6"><EmbedView embedded /></div>}
+        {tab === "integrations" && <div className="bg-gray-50/40 p-6"><IntegrationsView embedded /></div>}
+        {tab === "developer" && <div className="bg-gray-50/40 p-6"><DeveloperView embedded /></div>}
         {tab === "clients" && (
           <EmptyState
             icon="groups"

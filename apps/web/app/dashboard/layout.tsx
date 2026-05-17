@@ -239,22 +239,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </div>
 
-        {/* New Conversation */}
-        <div className={isSidebarCollapsed ? "px-3 pb-3" : "px-5 pb-3"}>
-          <button
-            onClick={() => router.push("/dashboard/conversations")}
-            title={isSidebarCollapsed ? "New Conversation" : undefined}
-            className={`flex items-center justify-center gap-2 w-full rounded-lg bg-[#F15A24] hover:bg-[#D94918] text-white font-semibold text-[13px] shadow-lg shadow-orange-900/40 transition-colors ${
-              isSidebarCollapsed ? "py-2.5" : "py-2.5"
-            }`}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>add</span>
-            {!isSidebarCollapsed && "New Conversation"}
-          </button>
-        </div>
-
         {/* Nav */}
-        <nav className="flex-1 px-3 overflow-y-auto no-scrollbar">
+        <nav className="flex-1 px-3 pt-2 overflow-y-auto no-scrollbar">
           {NAV_SECTIONS.map((section, idx) => (
             <NavSection
               key={section.title ?? `section-${idx}`}
@@ -342,6 +328,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </div>
           <div className="flex items-center gap-2 md:gap-3">
+            <button
+              onClick={() => router.push("/dashboard/billing")}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#F15A24] hover:bg-[#D94918] text-white font-semibold text-[13px] shadow-sm transition-colors"
+            >
+              <span
+                className="material-symbols-outlined"
+                style={{ fontSize: "18px", fontVariationSettings: "'FILL' 1" }}
+              >
+                diamond
+              </span>
+              <span className="hidden sm:inline">Upgrade</span>
+            </button>
             <button className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors">
               <span className="material-symbols-outlined" style={{ fontSize: "22px" }}>card_giftcard</span>
             </button>
