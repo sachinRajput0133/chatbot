@@ -21,9 +21,10 @@ function formatTime(dateStr: string): string {
 
 interface ConversationsViewProps {
   initialOpenId?: string;
+  embedded?: boolean;
 }
 
-export default function ConversationsView({ initialOpenId }: ConversationsViewProps) {
+export default function ConversationsView({ initialOpenId, embedded = false }: ConversationsViewProps) {
   const router = useRouter();
 
   // ── State ──
@@ -51,6 +52,13 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollMessagesToBottom = useCallback((smooth = true) => {
+    const el = messagesEndRef.current;
+    const container = el?.parentElement as HTMLElement | null | undefined;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  }, []);
   const openHandledRef = useRef(false);
 
   // ── Load data ──
@@ -123,7 +131,7 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
         if (selected?.id === conversation_id) {
           setMessages((prev) => prev.some(m => m.id === message.id) ? prev : [...prev, message]);
           api.markAsRead(conversation_id).catch(() => {});
-          requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+          requestAnimationFrame(() => scrollMessagesToBottom(true));
         }
       }
     };
@@ -135,7 +143,9 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
     setSelected(conv);
     setMessages([]);
     setMsgLoading(true);
-    window.history.replaceState(null, "", `/dashboard/conversations/${conv.id}`);
+    if (!embedded) {
+      window.history.replaceState(null, "", `/dashboard/conversations/${conv.id}`);
+    }
     setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, is_unread: false, unread_count: 0 } : c));
 
     try {
@@ -145,7 +155,7 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
       setHasMore(page.has_more);
       setNextCursor(page.next_cursor);
       setSelected(fresh);
-      requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "instant" }));
+      requestAnimationFrame(() => scrollMessagesToBottom(false));
     } finally {
       setMsgLoading(false);
     }
@@ -169,7 +179,7 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
       setAgentInput("");
       setMessages(prev => [...prev, newMsg]);
       setSelected(prev => prev ? { ...prev, last_message_at: newMsg.created_at } : null);
-      requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+      requestAnimationFrame(() => scrollMessagesToBottom(true));
     } catch (err) { console.error(err); } 
     finally { setSendingAgent(false); }
   }
@@ -181,7 +191,7 @@ export default function ConversationsView({ initialOpenId }: ConversationsViewPr
   });
 
   return (
-    <div className="flex flex-col h-[calc(100vh-64px)] w-full bg-[#F8FAFC] overflow-hidden" style={{ fontFamily: "'Manrope', sans-serif" }}>
+    <div className={`flex flex-col w-full bg-[#F8FAFC] overflow-hidden ${embedded ? "h-full" : "h-[calc(100vh-64px)]"}`} style={{ fontFamily: "'Manrope', sans-serif" }}>
       {/* ── Page Header ── */}
       <div className="px-8 py-4 shrink-0 flex items-center justify-between w-full bg-[#F8FAFC]">
         <div className="flex items-center gap-4">

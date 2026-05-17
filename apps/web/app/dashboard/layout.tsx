@@ -206,32 +206,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-screen bg-[#0E1116] text-gray-300 flex flex-col z-[70] transition-[transform,width] duration-300 ease-in-out md:translate-x-0 ${
+        className={`fixed left-0 top-0 h-screen bg-white text-gray-700 border-r border-gray-200 flex flex-col z-[70] transition-[transform,width] duration-300 ease-in-out md:translate-x-0 ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${isSidebarCollapsed ? "w-20" : "w-64"}`}
       >
         {/* Logo / Brand */}
         <div className={`flex items-center pt-5 pb-4 ${isSidebarCollapsed ? "px-3 flex-col gap-3" : "px-5 justify-between"}`}>
           <div className={`flex items-center ${isSidebarCollapsed ? "" : "gap-2.5"}`}>
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-900/30 flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-[#F15A24] flex items-center justify-center shadow-lg shadow-orange-900/30 flex-shrink-0">
               <span className="material-symbols-outlined text-white" style={{ fontSize: "20px", fontVariationSettings: "'FILL' 1" }}>
-                smart_toy
+                chat
               </span>
             </div>
             {!isSidebarCollapsed && (
-              <span className="text-white font-bold text-[16px] tracking-tight">ChatBot AI</span>
+              <span className="text-gray-900 font-bold text-[16px] tracking-tight">ChatBot AI</span>
             )}
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="md:hidden p-1.5 text-gray-400 hover:text-white transition-colors"
+            className="md:hidden p-1.5 text-gray-400 hover:text-gray-700 transition-colors"
           >
             <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>close</span>
           </button>
           <button
             onClick={toggleSidebarCollapsed}
             title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="hidden md:flex p-1 text-gray-500 hover:text-white transition-colors"
+            className="hidden md:flex p-1 text-gray-500 hover:text-gray-900 transition-colors"
           >
             <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>
               {isSidebarCollapsed ? "menu_open" : "menu"}
@@ -244,7 +244,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button
             onClick={() => router.push("/dashboard/conversations")}
             title={isSidebarCollapsed ? "New Conversation" : undefined}
-            className={`flex items-center justify-center gap-2 w-full rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-[13px] shadow-lg shadow-violet-900/40 transition-colors ${
+            className={`flex items-center justify-center gap-2 w-full rounded-lg bg-[#F15A24] hover:bg-[#D94918] text-white font-semibold text-[13px] shadow-lg shadow-orange-900/40 transition-colors ${
               isSidebarCollapsed ? "py-2.5" : "py-2.5"
             }`}
           >
@@ -270,30 +270,30 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* Upgrade Card */}
         {!isSidebarCollapsed && (
           <div className="px-4 pt-4">
-            <div className="relative rounded-xl p-4 bg-gradient-to-br from-violet-600/20 via-violet-700/10 to-transparent border border-violet-500/20 overflow-hidden">
-              <div className="absolute -top-6 -right-6 w-20 h-20 bg-violet-500/20 blur-2xl rounded-full" />
+            <div className="relative rounded-xl p-4 bg-[#FFF3EC] border border-[#F15A24]/20 overflow-hidden">
+              <div className="absolute -top-6 -right-6 w-20 h-20 bg-[#F15A24]/15 blur-2xl rounded-full" />
               <div className="flex items-center gap-2 mb-2 relative">
-                <span className="material-symbols-outlined text-violet-300" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>
+                <span className="material-symbols-outlined text-[#F15A24]" style={{ fontSize: "16px", fontVariationSettings: "'FILL' 1" }}>
                   diamond
                 </span>
-                <span className="text-white text-[13px] font-bold">Upgrade to Pro</span>
+                <span className="text-gray-900 text-[13px] font-bold">Upgrade to Pro</span>
               </div>
-              <p className="text-gray-400 text-[11px] leading-relaxed mb-3 relative">
+              <p className="text-gray-600 text-[11px] leading-relaxed mb-3 relative">
                 Unlock advanced features, remove limits, and boost performance.
               </p>
               <Link
                 href="/dashboard/billing"
-                className="flex items-center justify-between w-full py-2 px-3 rounded-lg bg-white/95 hover:bg-white text-gray-900 font-semibold text-[12px] transition-colors relative"
+                className="flex items-center justify-between w-full py-2 px-3 rounded-lg bg-white hover:bg-gray-50 text-gray-900 font-semibold text-[12px] transition-colors relative border border-gray-200"
               >
                 Upgrade Now
-                <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>arrow_forward</span>
+                <span className="material-symbols-outlined text-[#F15A24]" style={{ fontSize: "16px" }}>arrow_forward</span>
               </Link>
             </div>
           </div>
         )}
 
         {/* User footer */}
-        <div className={`py-4 mt-3 border-t border-white/5 ${isSidebarCollapsed ? "px-2" : "px-4"}`}>
+        <div className={`py-4 mt-3 border-t border-gray-200 ${isSidebarCollapsed ? "px-2" : "px-4"}`}>
           <div className={`flex items-center ${isSidebarCollapsed ? "flex-col gap-2" : "gap-3"}`}>
             <div
               className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
@@ -303,14 +303,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
             {!isSidebarCollapsed && (
               <div className="flex-1 min-w-0">
-                <div className="text-white text-[13px] font-semibold truncate">{displayName}</div>
+                <div className="text-gray-900 text-[13px] font-semibold truncate">{displayName}</div>
                 <div className="text-gray-500 text-[11px] truncate">{businessName || planLabel}</div>
               </div>
             )}
             <button
               onClick={logout}
               title="Sign out"
-              className="p-1.5 text-gray-500 hover:text-white transition-colors"
+              className="p-1.5 text-gray-500 hover:text-gray-900 transition-colors"
             >
               <span className="material-symbols-outlined" style={{ fontSize: "18px" }}>logout</span>
             </button>
@@ -397,7 +397,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        <main className={`flex-1 w-full ${pathname.startsWith("/dashboard/conversations") ? "" : "px-4 md:px-8 py-6 md:py-8 max-w-[1400px]"}`}>
+        <main className={`flex-1 w-full ${pathname.startsWith("/dashboard/conversations") ? "" : "px-4 md:px-8 py-6 md:py-8"}`}>
           {children}
         </main>
       </div>
@@ -429,7 +429,7 @@ function NavSection({
         </div>
       )}
       {section.title && collapsed && (
-        <div className="mx-3 my-2 border-t border-white/5" />
+        <div className="mx-3 my-2 border-t border-gray-200" />
       )}
       <div className="space-y-0.5">
         {section.items.map((item) => (
@@ -477,12 +477,12 @@ function NavLinkItem({
         collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2"
       } ${
         active
-          ? "bg-white/[0.08] text-white"
-          : "text-gray-400 hover:text-white hover:bg-white/5"
+          ? "bg-[#FFE9DF] text-[#F15A24]"
+          : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
       }`}
     >
       <span
-        className={`material-symbols-outlined ${active ? "text-violet-400" : ""}`}
+        className={`material-symbols-outlined ${active ? "text-[#F15A24]" : ""}`}
         style={{ fontSize: "20px", fontVariationSettings: active ? "'FILL' 1" : "" }}
       >
         {item.icon}
