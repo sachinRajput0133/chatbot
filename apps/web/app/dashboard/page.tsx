@@ -2,20 +2,56 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { api } from "@/lib/api/client";
 import ConversationsView from "./conversations/ConversationsView";
 
 const ORANGE = "#F15A24";
 const ORANGE_SOFT = "#FFE9DF";
 
-type TabKey = "conversations" | "action-items" | "clients" | "my-team";
+// Lazy-load the 4 Action Items sub-tab views — only fetched when first opened
+const KnowledgeView = dynamic(() => import("./knowledge/KnowledgeView"), {
+  ssr: false,
+  loading: () => <SubTabLoading />,
+});
+const CustomizeView = dynamic(() => import("./customize/CustomizeView"), {
+  ssr: false,
+  loading: () => <SubTabLoading />,
+});
+const LeadCaptureView = dynamic(() => import("./lead-capture/LeadCaptureView"), {
+  ssr: false,
+  loading: () => <SubTabLoading />,
+});
+const EmbedView = dynamic(() => import("./embed/EmbedView"), {
+  ssr: false,
+  loading: () => <SubTabLoading />,
+});
+
+type TabKey = "conversations" | "knowledge" | "customize" | "leads" | "embed" | "clients" | "my-team";
+
+const TABS: { id: TabKey; label: string; icon?: string }[] = [
+  { id: "knowledge", label: "Upload Knowledge", icon: "upload_file" },
+  { id: "customize", label: "Customize Bot", icon: "tune" },
+  { id: "leads", label: "Lead Capture", icon: "person_add" },
+  { id: "embed", label: "Get Embed Code", icon: "code" },
+  { id: "conversations", label: "Conversations" },
+];
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab") as TabKey | null;
+  const tab: TabKey = TABS.some((t) => t.id === tabParam) ? (tabParam as TabKey) : "conversations";
+
   const [me, setMe] = useState<any>(null);
   const [analytics, setAnalytics] = useState<any>(null);
-  const [tab, setTab] = useState<TabKey>("conversations");
+
+  function setTab(next: TabKey) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", next);
+    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+  }
 
   useEffect(() => {
     Promise.all([api.me(), api.getAnalytics()])
@@ -127,32 +163,29 @@ export default function DashboardPage() {
       {/* ── Tab bar ── */}
       <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
         <div className="flex items-center justify-between border-b border-gray-200 px-2">
-          <div className="flex items-center">
-            <TabButton active={tab === "conversations"} onClick={() => setTab("conversations")}>
-              Conversations
-            </TabButton>
-            <TabButton active={tab === "action-items"} onClick={() => setTab("action-items")}>
-              Action Items
-              <span className="ml-2 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold">
-                5
-              </span>
-            </TabButton>
-            <TabButton active={tab === "clients"} onClick={() => setTab("clients")}>
-              Clients
-            </TabButton>
-            <TabButton active={tab === "my-team"} onClick={() => setTab("my-team")}>
-              My Team
-            </TabButton>
+          <div className="flex items-center overflow-x-auto no-scrollbar">
+            {TABS.map((t) => (
+              <TabButton
+                key={t.id}
+                active={tab === t.id}
+                onClick={() => setTab(t.id)}
+                icon={t.icon}
+              >
+                {t.label}
+              </TabButton>
+            ))}
           </div>
-          <button
-            onClick={() => router.push("/dashboard/conversations")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 mr-2"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
-              open_in_full
-            </span>
-            Expand
-          </button>
+          {tab === "conversations" && (
+            <button
+              onClick={() => router.push("/dashboard/conversations")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-[13px] font-semibold text-gray-700 hover:bg-gray-50 mr-2 shrink-0"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>
+                open_in_full
+              </span>
+              Expand
+            </button>
+          )}
         </div>
 
         {/* ── Tab body ── */}
@@ -161,7 +194,10 @@ export default function DashboardPage() {
             <ConversationsView embedded />
           </div>
         )}
-        {tab === "action-items" && <ActionItemsPanel />}
+        {tab === "knowledge" && <div className="bg-gray-50/40 p-6"><KnowledgeView embedded /></div>}
+        {tab === "customize" && <div className="bg-gray-50/40 p-6"><CustomizeView embedded /></div>}
+        {tab === "leads" && <div className="bg-gray-50/40 p-6"><LeadCaptureView embedded /></div>}
+        {tab === "embed" && <div className="bg-gray-50/40 p-6"><EmbedView embedded /></div>}
         {tab === "clients" && (
           <EmptyState
             icon="groups"
@@ -244,19 +280,29 @@ function TabButton({
   active,
   onClick,
   children,
+  icon,
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  icon?: string;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`relative px-5 py-3.5 text-[14px] font-semibold transition-colors flex items-center ${
+      className={`relative px-4 py-3.5 text-[14px] font-semibold transition-colors flex items-center gap-2 whitespace-nowrap ${
         active ? "" : "text-gray-500 hover:text-gray-700"
       }`}
       style={active ? { color: ORANGE } : {}}
     >
+      {icon && (
+        <span
+          className="material-symbols-outlined"
+          style={{ fontSize: "18px", fontVariationSettings: active ? "'FILL' 1" : "" }}
+        >
+          {icon}
+        </span>
+      )}
       {children}
       {active && (
         <span
@@ -268,82 +314,12 @@ function TabButton({
   );
 }
 
-/* ─── Action Items (Quick Actions) ─── */
-function ActionItemsPanel() {
+/* ─── Sub-tab loading skeleton ─── */
+function SubTabLoading() {
   return (
-    <div className="p-6">
-      <h3 className="text-base font-bold text-gray-900 mb-1">Quick Actions</h3>
-      <p className="text-sm text-gray-500 mb-5">
-        Jump straight to the most common setup tasks.
-      </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <QuickAction
-          href="/dashboard/knowledge"
-          icon="upload_file"
-          title="Upload Knowledge"
-          desc="Add PDFs, URLs, or FAQs to train your bot"
-        />
-        <QuickAction
-          href="/dashboard/customize"
-          icon="tune"
-          title="Customize Bot"
-          desc="Set brand colors, tone of voice, and welcome message"
-        />
-        <QuickAction
-          href="/dashboard/lead-capture"
-          icon="person_add"
-          title="Lead Capture"
-          desc="Configure forms that convert visitors into leads"
-        />
-        <QuickAction
-          href="/dashboard/embed"
-          icon="code"
-          title="Get Embed Code"
-          desc="Copy the snippet to install the widget on your site"
-        />
-      </div>
+    <div className="flex items-center justify-center py-24">
+      <div className="text-gray-400 text-sm font-medium">Loading...</div>
     </div>
-  );
-}
-
-function QuickAction({
-  href,
-  icon,
-  title,
-  desc,
-}: {
-  href: string;
-  icon: string;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center gap-3 p-4 rounded-xl border border-gray-200 hover:border-[#F15A24]/40 hover:bg-[#FFF7F3] transition-colors group"
-    >
-      <div
-        className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-        style={{ background: ORANGE_SOFT }}
-      >
-        <span
-          className="material-symbols-outlined"
-          style={{ fontSize: "22px", color: ORANGE, fontVariationSettings: "'FILL' 1" }}
-        >
-          {icon}
-        </span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-bold text-gray-900">{title}</div>
-        <div className="text-xs text-gray-500 mt-0.5">{desc}</div>
-      </div>
-      <span
-        className="material-symbols-outlined text-gray-300 group-hover:text-[#F15A24] transition-colors"
-        style={{ fontSize: "22px" }}
-      >
-        chevron_right
-      </span>
-    </Link>
   );
 }
 
