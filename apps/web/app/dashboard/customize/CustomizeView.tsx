@@ -48,11 +48,15 @@ export default function CustomizeView({ embedded = false }: CustomizeViewProps) 
   const [loading, setLoading] = useState(false);
   const [openSection, setOpenSection] = useState<SectionId>("appearance");
   const [device, setDevice] = useState<DeviceMode>("mobile");
+  const [botId, setBotId] = useState<string | null>(null);
 
   useEffect(() => {
     api.getWidgetConfig()
       .then((c: any) => setConfig((prev) => ({ ...prev, ...c })))
       .catch(() => router.push("/login"));
+    api.me()
+      .then((m: any) => setBotId(m?.tenant?.bot_id ?? null))
+      .catch(() => {});
   }, []);
 
   async function handleSave(e: React.FormEvent) {
@@ -224,7 +228,7 @@ export default function CustomizeView({ embedded = false }: CustomizeViewProps) 
           <div className="space-y-4 min-w-0">
             <ProTipsCard />
             <SuggestedQuestionsCard config={config} setConfig={setConfig} />
-            <PreviewBotCard />
+            <PreviewBotCard botId={botId} />
             <NeedHelpCard />
           </div>
         </div>
@@ -868,7 +872,7 @@ function SuggestedQuestionsCard({ config, setConfig }: { config: any; setConfig:
   );
 }
 
-function PreviewBotCard() {
+function PreviewBotCard({ botId }: { botId: string | null }) {
   return (
     <div className="bg-white border border-gray-200/70 rounded-2xl p-4">
       <div className="flex items-start gap-2.5">
@@ -884,9 +888,11 @@ function PreviewBotCard() {
       </div>
       <div className="mt-3 flex justify-end">
         <a
-          href="#"
-          onClick={(e) => e.preventDefault()}
-          className="inline-flex items-center gap-1 text-xs font-semibold text-violet-600 hover:text-violet-700"
+          href={botId ? `/preview/${botId}` : undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => { if (!botId) e.preventDefault(); }}
+          className={`inline-flex items-center gap-1 text-xs font-semibold ${botId ? "text-violet-600 hover:text-violet-700" : "text-gray-400 cursor-not-allowed"}`}
         >
           Open Full Preview
           <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>open_in_new</span>
