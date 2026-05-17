@@ -179,3 +179,47 @@ class TestZapierResponse(BaseModel):
     ok: bool
     detail: str | None = None
 
+
+# ── HubSpot ───────────────────────────────────────────────────────────────────
+
+class HubSpotIntegrationStatus(BaseModel):
+    connected: bool
+    account_name: str | None = None
+    portal_id: int | None = None
+
+
+class SetHubSpotTokenRequest(BaseModel):
+    access_token: str = Field(..., min_length=10, max_length=500)
+
+    @field_validator("access_token")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        return v.strip()
+
+
+class TestHubSpotResponse(BaseModel):
+    ok: bool
+    detail: str | None = None
+    account_name: str | None = None
+
+
+# ── Salesforce ────────────────────────────────────────────────────────────────
+
+class SalesforceIntegrationStatus(BaseModel):
+    connected: bool
+    instance_url: str | None = None
+
+
+class SetSalesforceConfigRequest(BaseModel):
+    client_id: str = Field(..., min_length=10, max_length=512)
+    client_secret: str = Field(..., min_length=10, max_length=512)
+    username: str = Field(..., min_length=3, max_length=255)
+    # Password concatenated with security token, per Salesforce convention.
+    password: str = Field(..., min_length=5, max_length=512)
+
+
+class TestSalesforceResponse(BaseModel):
+    ok: bool
+    detail: str | None = None
+    instance_url: str | None = None
+

@@ -20,6 +20,14 @@ import {
   useSetZapierWebhookMutation,
   useDeleteZapierWebhookMutation,
   useTestZapierWebhookMutation,
+  useHubspotStatusQuery,
+  useSetHubspotTokenMutation,
+  useTestHubspotMutation,
+  useDeleteHubspotMutation,
+  useSalesforceStatusQuery,
+  useSetSalesforceConfigMutation,
+  useTestSalesforceMutation,
+  useDeleteSalesforceMutation,
 } from "@/lib/api";
 
 type Banner = { type: "success" | "error"; text: string } | null;
@@ -207,6 +215,10 @@ export default function IntegrationsView({ embedded = false }: IntegrationsViewP
       </section>
 
       <ZapierIntegrationCard />
+
+      <HubSpotIntegrationCard />
+
+      <SalesforceIntegrationCard />
 
       <AlertKeywordsCard />
 
@@ -1059,6 +1071,474 @@ function ZapierIntegrationCard() {
             </button>
           </div>
         </form>
+      )}
+    </section>
+  );
+}
+
+function HubSpotIntegrationCard() {
+  const { data: status, isLoading } = useHubspotStatusQuery();
+  const [setToken, { isLoading: saving }] = useSetHubspotTokenMutation();
+  const [testHubspot, { isLoading: testing }] = useTestHubspotMutation();
+  const [deleteHubspot, { isLoading: deleting }] = useDeleteHubspotMutation();
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [token, setTokenInput] = useState("");
+  const [banner, setBanner] = useState<Banner>(null);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setBanner(null);
+    try {
+      const result = await setToken({ access_token: token.trim() }).unwrap();
+      setBanner({
+        type: "success",
+        text: result.account_name
+          ? `Connected to HubSpot (${result.account_name}).`
+          : "Connected to HubSpot.",
+      });
+      setTokenInput("");
+      setModalOpen(false);
+    } catch (err: unknown) {
+      const msg = (err as { data?: { detail?: string | { msg?: string }[] } })?.data?.detail;
+      const text =
+        typeof msg === "string"
+          ? msg
+          : Array.isArray(msg)
+            ? msg[0]?.msg ?? "Failed to save"
+            : "Failed to save";
+      setBanner({ type: "error", text });
+    }
+  }
+
+  async function handleTest() {
+    setBanner(null);
+    try {
+      const result = await testHubspot().unwrap();
+      if (result.ok) {
+        setBanner({
+          type: "success",
+          text: result.account_name
+            ? `Connection healthy — ${result.account_name}.`
+            : "Connection healthy.",
+        });
+      } else {
+        setBanner({ type: "error", text: result.detail ?? "Test failed." });
+      }
+    } catch (err: unknown) {
+      const msg = (err as { data?: { detail?: string } })?.data?.detail ?? "Test failed.";
+      setBanner({ type: "error", text: msg });
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!confirm("Disconnect HubSpot? New leads will stop syncing to your CRM.")) return;
+    setBanner(null);
+    try {
+      await deleteHubspot().unwrap();
+      setBanner({ type: "success", text: "HubSpot disconnected." });
+    } catch {
+      setBanner({ type: "error", text: "Failed to disconnect." });
+    }
+  }
+
+  if (isLoading) return null;
+  const isConnected = !!status?.connected;
+
+  return (
+    <section className="bg-white border border-gray-200 rounded-xl p-6 mt-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-lg bg-[#FF7A59] text-white flex items-center justify-center font-bold text-lg">
+          H
+        </div>
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold text-gray-900">HubSpot</h2>
+          <p className="text-sm text-gray-500">
+            Sync captured leads as Contacts and attach chat transcripts as Notes.
+          </p>
+        </div>
+        {isConnected && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Connected
+          </span>
+        )}
+      </div>
+
+      {banner && (
+        <div
+          className={`mb-6 px-4 py-3 rounded-lg text-sm ${
+            banner.type === "success"
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-red-50 text-red-700 border border-red-200"
+          }`}
+        >
+          {banner.text}
+        </div>
+      )}
+
+      {isConnected ? (
+        <div className="space-y-4">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+            <div className="text-xs text-gray-500 uppercase tracking-wide">Connected account</div>
+            <div className="text-sm text-gray-800 font-medium">
+              {status?.account_name ?? "HubSpot account"}
+              {status?.portal_id && (
+                <span className="ml-2 text-gray-500 font-normal">
+                  (portal {status.portal_id})
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing}
+              className="px-4 py-2 rounded-lg bg-[#FF7A59] text-white text-sm font-medium hover:bg-[#e86b4d] disabled:opacity-50"
+            >
+              {testing ? "Testing..." : "Test connection"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              disabled={deleting}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {deleting ? "Disconnecting..." : "Disconnect"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-gray-600 mb-3">
+            Paste a HubSpot Private App access token to start syncing leads automatically.
+          </p>
+          <p className="text-xs text-gray-500 mb-4">
+            Need a token?{" "}
+            <a
+              href="https://developers.hubspot.com/docs/api/private-apps"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-600 hover:underline"
+            >
+              Create a Private App
+            </a>{" "}
+            in HubSpot with <code className="font-mono text-gray-700">crm.objects.contacts</code> read &amp; write scopes.
+          </p>
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="px-4 py-2 rounded-lg bg-[#FF7A59] text-white text-sm font-medium hover:bg-[#e86b4d]"
+          >
+            Connect HubSpot
+          </button>
+        </>
+      )}
+
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !saving && setModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-md w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">Connect HubSpot</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              We&apos;ll validate the token with HubSpot before saving.
+            </p>
+            <form onSubmit={handleSave} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Private App access token
+                </label>
+                <input
+                  type="password"
+                  value={token}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="pat-na1-...."
+                  autoFocus
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#FF7A59]"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Get one from{" "}
+                  <a
+                    href="https://developers.hubspot.com/docs/api/private-apps"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-600 hover:underline"
+                  >
+                    HubSpot Private Apps
+                  </a>
+                  .
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  disabled={saving}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving || !token.trim()}
+                  className="px-4 py-2 rounded-lg bg-[#FF7A59] text-white text-sm font-medium hover:bg-[#e86b4d] disabled:opacity-50"
+                >
+                  {saving ? "Validating..." : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ── Salesforce native CRM card ──────────────────────────────────────────────
+function SalesforceIntegrationCard() {
+  const { data: status, isLoading } = useSalesforceStatusQuery();
+  const [setConfig, { isLoading: saving }] = useSetSalesforceConfigMutation();
+  const [testConn, { isLoading: testing }] = useTestSalesforceMutation();
+  const [deleteConn, { isLoading: deleting }] = useDeleteSalesforceMutation();
+
+  const [showModal, setShowModal] = useState(false);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [banner, setBanner] = useState<Banner>(null);
+
+  async function handleConnect(e: React.FormEvent) {
+    e.preventDefault();
+    setBanner(null);
+    try {
+      await setConfig({
+        client_id: clientId.trim(),
+        client_secret: clientSecret.trim(),
+        username: username.trim(),
+        password: password,
+      }).unwrap();
+      setBanner({ type: "success", text: "Salesforce connected." });
+      setShowModal(false);
+      setClientId("");
+      setClientSecret("");
+      setUsername("");
+      setPassword("");
+    } catch (err: unknown) {
+      const msg = (err as { data?: { detail?: string } })?.data?.detail ?? "Failed to connect.";
+      setBanner({ type: "error", text: msg });
+    }
+  }
+
+  async function handleTest() {
+    setBanner(null);
+    try {
+      const result = await testConn().unwrap();
+      if (result.ok) {
+        setBanner({ type: "success", text: `Salesforce reachable at ${result.instance_url ?? "your org"}.` });
+      } else {
+        setBanner({ type: "error", text: result.detail ?? "Salesforce test failed." });
+      }
+    } catch (err: unknown) {
+      const msg = (err as { data?: { detail?: string } })?.data?.detail ?? "Test failed.";
+      setBanner({ type: "error", text: msg });
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!confirm("Disconnect Salesforce? Captured leads will no longer sync to your org.")) return;
+    setBanner(null);
+    try {
+      await deleteConn().unwrap();
+      setBanner({ type: "success", text: "Salesforce disconnected." });
+    } catch {
+      setBanner({ type: "error", text: "Failed to disconnect." });
+    }
+  }
+
+  if (isLoading) return null;
+
+  const connected = !!status?.connected;
+
+  return (
+    <section className="bg-white border border-gray-200 rounded-xl p-6 mt-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-lg bg-[#00A1E0] text-white flex items-center justify-center font-bold">
+          SF
+        </div>
+        <div className="flex-1">
+          <h2 className="text-lg font-semibold text-gray-900">Salesforce</h2>
+          <p className="text-sm text-gray-500">
+            Auto-sync captured leads to Salesforce as Leads, and attach resolved transcripts as Tasks.
+          </p>
+        </div>
+        {connected && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> Connected
+          </span>
+        )}
+      </div>
+
+      {banner && (
+        <div
+          className={`mb-4 px-4 py-3 rounded-lg text-sm ${
+            banner.type === "success"
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-red-50 text-red-700 border border-red-200"
+          }`}
+        >
+          {banner.text}
+        </div>
+      )}
+
+      {connected ? (
+        <div className="space-y-4">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+            <div className="text-xs text-gray-500 uppercase tracking-wide">Connected org</div>
+            <code className="text-sm text-gray-800 font-mono break-all">
+              {status?.instance_url ?? "Salesforce"}
+            </code>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing}
+              className="px-4 py-2 rounded-lg bg-[#00A1E0] text-white text-sm font-medium hover:bg-[#008ec5] disabled:opacity-50"
+            >
+              {testing ? "Testing..." : "Test connection"}
+            </button>
+            <button
+              type="button"
+              onClick={handleDisconnect}
+              disabled={deleting}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            >
+              {deleting ? "Disconnecting..." : "Disconnect"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowModal(true)}
+          className="px-4 py-2 rounded-lg bg-[#00A1E0] text-white text-sm font-medium hover:bg-[#008ec5]"
+        >
+          Connect Salesforce
+        </button>
+      )}
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Connect Salesforce</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Enter the credentials from a Salesforce Connected App with the
+                  &quot;Username-Password&quot; OAuth flow enabled.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                aria-label="Close"
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleConnect} className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Consumer Key (Client ID)
+                </label>
+                <input
+                  type="text"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#00A1E0]"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Consumer Secret (Client Secret)
+                </label>
+                <input
+                  type="password"
+                  value={clientSecret}
+                  onChange={(e) => setClientSecret(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#00A1E0]"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Salesforce username
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="you@yourcompany.com"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00A1E0]"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Password + Security Token
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00A1E0]"
+                  required
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Concatenate your password and security token (e.g. <code className="font-mono">mypasswordXyz123token</code>).
+                  Reset your security token from Salesforce → My Settings → Personal → Reset My Security Token.
+                </p>
+              </div>
+              <p className="text-xs text-gray-500">
+                Need help creating a Connected App?{" "}
+                <a
+                  href="https://help.salesforce.com/s/articleView?id=sf.connected_app_create.htm"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#00A1E0] hover:underline"
+                >
+                  Salesforce&apos;s guide →
+                </a>
+              </p>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving || !clientId.trim() || !clientSecret.trim() || !username.trim() || !password}
+                  className="flex-1 px-4 py-2 rounded-lg bg-[#00A1E0] text-white text-sm font-medium hover:bg-[#008ec5] disabled:opacity-50"
+                >
+                  {saving ? "Validating..." : "Validate & Connect"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  disabled={saving}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </section>
   );

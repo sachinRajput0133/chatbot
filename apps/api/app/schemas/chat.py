@@ -18,10 +18,17 @@ class ChatRequest(BaseModel):
     attachment_url: str | None = None
 
 
+class CitationInfo(BaseModel):
+    document_id: uuid.UUID
+    title: str
+    type: str | None = None
+
+
 class ChatResponse(BaseModel):
     reply: str
     message_id: uuid.UUID
     conversation_id: uuid.UUID
+    citations: list[CitationInfo] | None = None
 
 
 class ConversationSummary(BaseModel):

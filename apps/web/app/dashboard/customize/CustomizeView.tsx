@@ -27,6 +27,7 @@ export default function CustomizeView({ embedded = false }: CustomizeViewProps) 
     company_address: "",
     company_phone: "",
     business_hours: "",
+    enforce_business_hours: false,
     tone_of_voice: "",
     target_audience: "",
     brand_values: "",
@@ -45,6 +46,8 @@ export default function CustomizeView({ embedded = false }: CustomizeViewProps) 
     theme: "light",
     url_targeting_mode: "all" as "all" | "include" | "exclude",
     url_targeting_patterns: [] as string[],
+    confidence_threshold: 0.5,
+    auto_handoff_enabled: false,
   });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -633,6 +636,47 @@ function AdvancedForm({ config, setConfig, field }: { config: any; setConfig: (c
         </div>
       </div>
 
+      {/* B3 — AI confidence handoff */}
+      <div className="border-t border-gray-100 pt-4">
+        <div className="text-sm font-semibold text-gray-900 mb-1">AI confidence handoff</div>
+        <p className="text-[11px] text-gray-500 mb-3">
+          When the AI's best matching knowledge chunk falls below the threshold,
+          automatically hand the visitor off to a human agent and fire the usual
+          escalation alerts.
+        </p>
+        <label className="flex items-center justify-between cursor-pointer py-2">
+          <span className="text-sm text-gray-900">Enable auto-handoff on low confidence</span>
+          <input
+            type="checkbox"
+            checked={!!config.auto_handoff_enabled}
+            onChange={(e) => setConfig({ ...config, auto_handoff_enabled: e.target.checked })}
+            className="h-4 w-4 accent-violet-600"
+          />
+        </label>
+        <div className="mt-2">
+          <FieldLabel>
+            Confidence threshold ({(config.confidence_threshold ?? 0.5).toFixed(2)})
+          </FieldLabel>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={config.confidence_threshold ?? 0.5}
+            onChange={(e) =>
+              setConfig({ ...config, confidence_threshold: parseFloat(e.target.value) })
+            }
+            disabled={!config.auto_handoff_enabled}
+            className="w-full accent-violet-600 disabled:opacity-50"
+          />
+          <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+            <span>0.0 (never)</span>
+            <span>0.5 (default)</span>
+            <span>1.0 (always)</span>
+          </div>
+        </div>
+      </div>
+
       <div className="border-t border-gray-100 pt-4">
         <div className="text-sm font-semibold text-gray-900 mb-3">Company Information</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -650,12 +694,27 @@ function AdvancedForm({ config, setConfig, field }: { config: any; setConfig: (c
           </div>
           <div>
             <FieldLabel>Business Hours</FieldLabel>
-            <input type="text" {...field("business_hours")} placeholder="Mon-Fri 9AM-6PM EST" className={inputCls()} />
+            <input type="text" {...field("business_hours")} placeholder='{"timezone":"America/New_York","days":{"mon":{"open":"09:00","close":"17:00"}},"closed_message":"We are closed!"}' className={inputCls()} />
           </div>
         </div>
         <div className="mt-3">
           <FieldLabel>Company Address</FieldLabel>
           <input type="text" {...field("company_address")} placeholder="123 Main St, City, State, ZIP" className={inputCls()} />
+        </div>
+        <div className="mt-4 flex items-start gap-3 p-3 border border-gray-100 rounded-lg bg-gray-50/60">
+          <input
+            id="enforce-business-hours"
+            type="checkbox"
+            checked={!!config.enforce_business_hours}
+            onChange={(e) => setConfig({ ...config, enforce_business_hours: e.target.checked })}
+            className="mt-0.5 w-4 h-4 accent-violet-600 cursor-pointer"
+          />
+          <label htmlFor="enforce-business-hours" className="cursor-pointer">
+            <div className="text-xs font-semibold text-gray-800">Enforce business hours</div>
+            <div className="text-[11px] text-gray-500 mt-0.5">
+              When enabled, visitor messages received outside hours skip the AI, respond with the configured closed message, and are flagged as pending for an agent.
+            </div>
+          </label>
         </div>
       </div>
     </div>

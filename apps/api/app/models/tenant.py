@@ -54,6 +54,18 @@ class Tenant(Base):
     whatsapp_recipient_phones: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     # Zapier webhook URL for CRM integration
     zapier_webhook_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # HubSpot Private App access token, Fernet-encrypted at rest.
+    # Null = tenant has not connected HubSpot.
+    hubspot_access_token: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # ── Salesforce native CRM integration ─────────────────────────────────────
+    # OAuth Username-Password Flow credentials. All four are Fernet-encrypted at rest.
+    # Null on any of them = tenant has not connected Salesforce.
+    salesforce_client_id: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    salesforce_client_secret: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    salesforce_username: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    salesforce_password: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # Captured after first successful login, e.g. "https://acme.my.salesforce.com".
+    salesforce_instance_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

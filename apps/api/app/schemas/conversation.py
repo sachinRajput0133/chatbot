@@ -4,12 +4,21 @@ from pydantic import BaseModel
 from app.models.conversation import MessageRole
 
 
+class CitationOut(BaseModel):
+    document_id: uuid.UUID
+    title: str
+    type: str | None = None
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     role: MessageRole
     content: str
     created_at: datetime
     is_internal: bool = False
+    citations: list[CitationOut] | None = None
+    feedback_rating: int | None = None
+    feedback_comment: str | None = None
 
     class Config:
         from_attributes = True
@@ -50,6 +59,8 @@ class ConversationOut(BaseModel):
     assigned_user_id: uuid.UUID | None = None
     assigned_user_email: str | None = None
     assigned_at: datetime | None = None
+    lead_score: int = 0
+    lead_score_factors: dict[str, int] | None = None
 
     class Config:
         from_attributes = True

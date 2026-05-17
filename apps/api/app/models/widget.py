@@ -61,6 +61,9 @@ class WidgetConfig(Base):
     company_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     company_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     business_hours: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    enforce_business_hours: Mapped[bool] = mapped_column(
+        postgresql.BOOLEAN, nullable=False, default=False, server_default="false"
+    )
     tone_of_voice: Mapped[str | None] = mapped_column(String(128), nullable=True)
     target_audience: Mapped[str | None] = mapped_column(Text, nullable=True)
     brand_values: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -76,6 +79,14 @@ class WidgetConfig(Base):
     )
     url_targeting_patterns: Mapped[list[str]] = mapped_column(
         postgresql.ARRAY(Text), nullable=False, default=list, server_default="{}"
+    )
+
+    # B3 — Confidence-based handoff
+    confidence_threshold: Mapped[float] = mapped_column(
+        postgresql.DOUBLE_PRECISION, nullable=False, default=0.5, server_default="0.5"
+    )
+    auto_handoff_enabled: Mapped[bool] = mapped_column(
+        postgresql.BOOLEAN, nullable=False, default=False, server_default="false"
     )
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="widget_config")

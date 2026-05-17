@@ -30,6 +30,12 @@ interface LeadCaptureInfo {
   subtitle: string;
 }
 
+interface Citation {
+  document_id: string;
+  title: string;
+  type?: string | null;
+}
+
 interface WidgetConfig {
   bot_name: string;
   primary_color: string;
@@ -224,7 +230,7 @@ const i18n: Record<string, Record<string, string>> = {
   }
 
   // ── Send message ───────────────────────────────────────────────────────────
-  async function sendMessage(message: string, attachmentUrl: string | null = null): Promise<{ reply: string; messageId: string }> {
+  async function sendMessage(message: string, attachmentUrl: string | null = null): Promise<{ reply: string; messageId: string; citations: Citation[] | null }> {
     // Build user_info by merging window.ChatbotConfig.user (website owner identity)
     // with collectedLeadInfo from the pre-chat form. Form data takes precedence since
     // it was explicitly entered by this visitor.
@@ -260,7 +266,21 @@ const i18n: Record<string, Record<string, string>> = {
     const data = await res.json();
     conversationId = data.conversation_id;
     setConversationId(conversationId!);
-    return { reply: data.reply, messageId: data.message_id };
+    return { reply: data.reply, messageId: data.message_id, citations: data.citations || null };
+  }
+
+  // ── B2. Submit thumbs up/down feedback on a bot reply ─────────────────────
+  async function submitMessageFeedback(messageId: string, rating: 1 | -1): Promise<boolean> {
+    try {
+      const res = await fetch(`${API_URL}/api/widget/messages/${messageId}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 
   // ── Submit lead form ───────────────────────────────────────────────────────
@@ -971,6 +991,37 @@ const i18n: Record<string, Record<string, string>> = {
     let ws: WebSocket | null = null;
     let selectedFile: File | null = null;
     let isUploading = false;
+    let lastVisitorTypingSent = 0;
+    let agentTypingEl: HTMLElement | null = null;
+    let agentTypingTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function showAgentTyping() {
+      if (!agentTypingEl) {
+        agentTypingEl = document.createElement("div");
+        agentTypingEl.id = "cb-agent-typing";
+        agentTypingEl.style.cssText = "padding: 4px 16px; font-size: 11px; color: var(--cb-text-muted); display: flex; align-items: center; gap: 6px;";
+        agentTypingEl.innerHTML = `<span style="display:inline-flex; gap:3px;"><span style="width:4px; height:4px; border-radius:50%; background:#9ca3af; animation: cb-bounce 1.2s infinite;"></span><span style="width:4px; height:4px; border-radius:50%; background:#9ca3af; animation: cb-bounce 1.2s infinite; animation-delay:0.2s;"></span><span style="width:4px; height:4px; border-radius:50%; background:#9ca3af; animation: cb-bounce 1.2s infinite; animation-delay:0.4s;"></span></span> ${escHtml(wc.bot_name)} is typing…`;
+        const container = document.getElementById("cb-input-container");
+        if (container && container.parentElement) {
+          container.parentElement.insertBefore(agentTypingEl, container);
+        }
+      }
+      if (agentTypingTimer) clearTimeout(agentTypingTimer);
+      agentTypingTimer = setTimeout(() => {
+        if (agentTypingEl) { agentTypingEl.remove(); agentTypingEl = null; }
+        agentTypingTimer = null;
+      }, 5000);
+    }
+
+    function sendVisitorTyping() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      if (now - lastVisitorTypingSent < 3000) return;
+      lastVisitorTypingSent = now;
+      try {
+        ws.send(JSON.stringify({ type: "typing", who: "visitor" }));
+      } catch { /* ignore */ }
+    }
 
     const fileInput = document.getElementById("cb-file-input") as HTMLInputElement;
     const attachBtn = document.getElementById("cb-attach") as HTMLButtonElement;
@@ -1028,6 +1079,10 @@ const i18n: Record<string, Record<string, string>> = {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (data.type === "typing") {
+            if (data.who === "agent") showAgentTyping();
+            return;
+          }
           if (data.id && seenMessageIds.has(data.id)) return;
 
           if (data.role === "agent") {
@@ -1037,7 +1092,7 @@ const i18n: Record<string, Record<string, string>> = {
               currentTypingIndicator.remove();
               currentTypingIndicator = null;
             }
-            appendMessage(data.content, "bot", messagesEl, data.id, data.attachment_url);
+            appendMessage(data.content, "bot", messagesEl, data.id, data.attachment_url, data.citations);
           }
         } catch (e) { }
       };
@@ -1078,7 +1133,7 @@ const i18n: Record<string, Record<string, string>> = {
       currentTypingIndicator = appendTyping(messagesEl);
 
       try {
-        const { reply, messageId } = await sendMessage(text);
+        const { reply, messageId, citations } = await sendMessage(text);
         if (!ws && conversationId) connectWebSocket(conversationId);
 
         if (currentTypingIndicator) {
@@ -1087,7 +1142,7 @@ const i18n: Record<string, Record<string, string>> = {
         }
 
         if (reply !== "__human_mode__") {
-          appendMessage(reply, "bot", messagesEl, messageId);
+          appendMessage(reply, "bot", messagesEl, messageId, null, citations);
         }
       } catch (e: any) {
         if (currentTypingIndicator) {
@@ -1108,12 +1163,25 @@ const i18n: Record<string, Record<string, string>> = {
         doSubmit();
       }
     });
+    inputEl.addEventListener("input", () => {
+      if (!inputEl.value.trim()) return;
+      // Establish WS lazily if a conversation already exists.
+      if (!ws && conversationId) connectWebSocket(conversationId);
+      sendVisitorTyping();
+    });
 
   }
 
-  function appendMessage(text: string, role: "user" | "bot" | "agent", container: HTMLElement, messageId?: string, attachmentUrl?: string | null): HTMLElement {
+  function appendMessage(
+    text: string,
+    role: "user" | "bot" | "agent",
+    container: HTMLElement,
+    messageId?: string,
+    attachmentUrl?: string | null,
+    citations?: Citation[] | null,
+  ): HTMLElement {
     if (messageId && seenMessageIds.has(messageId)) {
-      // Find existing message with this ID if we want to replace, 
+      // Find existing message with this ID if we want to replace,
       // but for now we just return the existing one or null.
       // Our check at the call site already handles this mostly, but safety first.
       return document.createElement("div"); // Dummy
@@ -1155,6 +1223,59 @@ const i18n: Record<string, Record<string, string>> = {
     
     div.innerHTML = displayHtml;
     container.appendChild(div);
+
+    // ── B1. Citations chips under bot bubble ────────────────────────────────
+    if (role === "bot" && citations && citations.length > 0) {
+      const chips = document.createElement("div");
+      chips.className = "cb-citations";
+      chips.style.cssText = "display:flex; flex-wrap:wrap; gap:6px; align-self:flex-start; margin-top:-4px; max-width:85%;";
+      citations.forEach((c) => {
+        const chip = document.createElement("span");
+        chip.style.cssText = "display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:9999px; background:var(--cb-msg-bot-bg); border:1px solid var(--cb-border); font-size:10px; color:var(--cb-text-muted);";
+        chip.title = c.type ? `${c.title} (${c.type})` : c.title;
+        chip.textContent = `Source: ${c.title}`;
+        chips.appendChild(chip);
+      });
+      container.appendChild(chips);
+    }
+
+    // ── B2. Thumbs up / down under bot bubble ────────────────────────────────
+    if (role === "bot" && messageId) {
+      const fb = document.createElement("div");
+      fb.className = "cb-feedback";
+      fb.style.cssText = "display:flex; gap:4px; align-self:flex-start; margin-top:-2px;";
+      const upBtn = document.createElement("button");
+      const downBtn = document.createElement("button");
+      const baseStyle = "background:transparent; border:1px solid var(--cb-border); border-radius:9999px; padding:2px 8px; cursor:pointer; font-size:12px; line-height:1; color:var(--cb-text-muted); transition:background 0.15s, color 0.15s;";
+      upBtn.type = "button";
+      downBtn.type = "button";
+      upBtn.style.cssText = baseStyle;
+      downBtn.style.cssText = baseStyle;
+      upBtn.setAttribute("aria-label", "Helpful");
+      downBtn.setAttribute("aria-label", "Not helpful");
+      upBtn.textContent = "👍";
+      downBtn.textContent = "👎";
+      function setSelected(value: 1 | -1) {
+        upBtn.style.opacity = value === 1 ? "1" : "0.4";
+        downBtn.style.opacity = value === -1 ? "1" : "0.4";
+        upBtn.style.background = value === 1 ? "var(--cb-msg-bot-bg)" : "transparent";
+        downBtn.style.background = value === -1 ? "var(--cb-msg-bot-bg)" : "transparent";
+        upBtn.disabled = true;
+        downBtn.disabled = true;
+      }
+      upBtn.addEventListener("click", async () => {
+        setSelected(1);
+        await submitMessageFeedback(messageId, 1);
+      });
+      downBtn.addEventListener("click", async () => {
+        setSelected(-1);
+        await submitMessageFeedback(messageId, -1);
+      });
+      fb.appendChild(upBtn);
+      fb.appendChild(downBtn);
+      container.appendChild(fb);
+    }
+
     container.scrollTop = container.scrollHeight;
     return div;
   }

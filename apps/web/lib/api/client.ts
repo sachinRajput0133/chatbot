@@ -86,12 +86,26 @@ export const api = {
   updateWidgetConfig: (data: any) =>
     request<any>("/api/widget/config", { method: "PUT", body: JSON.stringify(data) }),
 
-  listConversations: (page = 1, status?: string, assignedTo?: string) => {
+  listConversations: (
+    page = 1,
+    status?: string,
+    assignedTo?: string,
+    sort?: "lead_score_desc",
+    minScore?: number,
+  ) => {
     const params = new URLSearchParams({ page: String(page) });
     if (status) params.set("status", status);
     if (assignedTo) params.set("assigned_to", assignedTo);
+    if (sort) params.set("sort", sort);
+    if (typeof minScore === "number") params.set("min_score", String(minScore));
     return request<any[]>(`/api/conversations/?${params.toString()}`);
   },
+
+  recomputeLeadScore: (conversationId: string) =>
+    request<{ lead_score: number; lead_score_factors: Record<string, number> | null }>(
+      `/api/conversations/${conversationId}/recompute-score`,
+      { method: "POST" },
+    ),
 
   listMembers: () => request<{ id: string; email: string }[]>("/api/members"),
 

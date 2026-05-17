@@ -60,6 +60,30 @@ export interface TestZapierResponse {
   detail: string | null;
 }
 
+export interface HubSpotIntegrationStatus {
+  connected: boolean;
+  account_name: string | null;
+  portal_id: number | null;
+}
+
+export interface TestHubSpotResponse {
+  ok: boolean;
+  detail: string | null;
+  account_name: string | null;
+}
+
+// ── Salesforce ──────────────────────────────────────────────────────────────
+export interface SalesforceIntegrationStatus {
+  connected: boolean;
+  instance_url: string | null;
+}
+
+export interface TestSalesforceResponse {
+  ok: boolean;
+  detail: string | null;
+  instance_url: string | null;
+}
+
 export const integrationsApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     slackStatus: build.query<SlackIntegrationStatus, void>({
@@ -134,6 +158,40 @@ export const integrationsApi = baseApi.injectEndpoints({
     testZapierWebhook: build.mutation<TestZapierResponse, { webhook_url?: string }>({
       query: (body) => ({ url: "/api/integrations/zapier/test", method: "POST", body }),
     }),
+    hubspotStatus: build.query<HubSpotIntegrationStatus, void>({
+      query: () => "/api/integrations/hubspot",
+      providesTags: ["Integrations"],
+    }),
+    setHubspotToken: build.mutation<HubSpotIntegrationStatus, { access_token: string }>({
+      query: (body) => ({ url: "/api/integrations/hubspot", method: "POST", body }),
+      invalidatesTags: ["Integrations"],
+    }),
+    testHubspot: build.mutation<TestHubSpotResponse, void>({
+      query: () => ({ url: "/api/integrations/hubspot/test", method: "POST" }),
+    }),
+    deleteHubspot: build.mutation<void, void>({
+      query: () => ({ url: "/api/integrations/hubspot", method: "DELETE" }),
+      invalidatesTags: ["Integrations"],
+    }),
+    // ── Salesforce ────────────────────────────────────────────────────────
+    salesforceStatus: build.query<SalesforceIntegrationStatus, void>({
+      query: () => "/api/integrations/salesforce",
+      providesTags: ["Integrations"],
+    }),
+    setSalesforceConfig: build.mutation<
+      SalesforceIntegrationStatus,
+      { client_id: string; client_secret: string; username: string; password: string }
+    >({
+      query: (body) => ({ url: "/api/integrations/salesforce", method: "POST", body }),
+      invalidatesTags: ["Integrations"],
+    }),
+    testSalesforce: build.mutation<TestSalesforceResponse, void>({
+      query: () => ({ url: "/api/integrations/salesforce/test", method: "POST" }),
+    }),
+    deleteSalesforce: build.mutation<void, void>({
+      query: () => ({ url: "/api/integrations/salesforce", method: "DELETE" }),
+      invalidatesTags: ["Integrations"],
+    }),
   }),
 });
 
@@ -157,4 +215,12 @@ export const {
   useSetZapierWebhookMutation,
   useDeleteZapierWebhookMutation,
   useTestZapierWebhookMutation,
+  useHubspotStatusQuery,
+  useSetHubspotTokenMutation,
+  useTestHubspotMutation,
+  useDeleteHubspotMutation,
+  useSalesforceStatusQuery,
+  useSetSalesforceConfigMutation,
+  useTestSalesforceMutation,
+  useDeleteSalesforceMutation,
 } = integrationsApi;

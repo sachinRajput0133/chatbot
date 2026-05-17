@@ -18,7 +18,7 @@ from app.models.tenant import Tenant, Plan
 from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.models.widget import WidgetConfig
 from app.schemas.chat import VisitorInfo
-from app.services import email_service, lead_capture_service, whatsapp_service
+from app.services import email_service, lead_capture_service, whatsapp_service, business_hours_service, hubspot_service
 
 logger = logging.getLogger(__name__)
 
@@ -224,35 +224,81 @@ async def _embed_query(query: str) -> list[float] | None:
     return response.data[0].embedding
 
 
-async def _retrieve_chunks(tenant_id: uuid.UUID, query: str, embedding: list[float] | None, db: AsyncSession) -> list[str]:
+async def _retrieve_chunks(
+    tenant_id: uuid.UUID, query: str, embedding: list[float] | None, db: AsyncSession
+) -> tuple[list[str], list[dict], float]:
+    """Return (chunk_contents, citations, top_similarity).
+
+    citations is a deduped list of {document_id, title, type} for the source
+    documents whose chunks were retrieved. top_similarity is the cosine
+    similarity (0-1) of the best matching chunk; the keyword-search fallback
+    returns 0.0 since no similarity score is available.
+    """
     if embedding:
         embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
         result = await db.execute(
             text("""
-                SELECT content FROM knowledge_chunks
-                WHERE tenant_id = :tenant_id
-                ORDER BY embedding <=> :embedding::vector
+                SELECT kc.content,
+                       kd.id AS doc_id,
+                       kd.filename AS doc_title,
+                       kd.file_type AS doc_type,
+                       1 - (kc.embedding <=> :embedding::vector) AS similarity
+                FROM knowledge_chunks kc
+                JOIN knowledge_documents kd ON kd.id = kc.document_id
+                WHERE kc.tenant_id = :tenant_id
+                ORDER BY kc.embedding <=> :embedding::vector
                 LIMIT 5
             """),
             {"tenant_id": str(tenant_id), "embedding": embedding_str},
         )
     else:
-        # Keyword search fallback when no OpenAI key
         words = [w for w in query.lower().split() if len(w) > 3]
         if not words:
-            return []
+            return [], [], 0.0
         params: dict = {"tenant_id": str(tenant_id)}
         params.update({f"w{i}": f"%{w}%" for i, w in enumerate(words[:5])})
         result = await db.execute(
             text(f"""
-                SELECT content FROM knowledge_chunks
-                WHERE tenant_id = :tenant_id
-                AND ({" OR ".join(f"LOWER(content) LIKE :w{i}" for i in range(len(words[:5])))})
+                SELECT kc.content,
+                       kd.id AS doc_id,
+                       kd.filename AS doc_title,
+                       kd.file_type AS doc_type,
+                       0.0 AS similarity
+                FROM knowledge_chunks kc
+                JOIN knowledge_documents kd ON kd.id = kc.document_id
+                WHERE kc.tenant_id = :tenant_id
+                AND ({" OR ".join(f"LOWER(kc.content) LIKE :w{i}" for i in range(len(words[:5])))})
                 LIMIT 5
             """),
             params,
         )
-    return [row[0] for row in result.fetchall()]
+    rows = result.fetchall()
+    contents: list[str] = []
+    citations: list[dict] = []
+    seen: set[str] = set()
+    top_sim = 0.0
+    for row in rows:
+        contents.append(row[0])
+        doc_id = str(row[1])
+        if doc_id not in seen:
+            seen.add(doc_id)
+            doc_type = row[3]
+            type_str = (
+                doc_type.value if hasattr(doc_type, "value")
+                else (str(doc_type) if doc_type is not None else None)
+            )
+            citations.append({
+                "document_id": doc_id,
+                "title": row[2],
+                "type": type_str,
+            })
+        try:
+            sim = float(row[4]) if row[4] is not None else 0.0
+        except (TypeError, ValueError):
+            sim = 0.0
+        if sim > top_sim:
+            top_sim = sim
+    return contents, citations, top_sim
 
 
 # ── Conversation helpers ───────────────────────────────────────────────────────
@@ -305,7 +351,7 @@ async def handle_chat(
     db: AsyncSession,
     user_info: VisitorInfo | None = None,
     attachment_url: str | None = None,
-) -> tuple[str, uuid.UUID, uuid.UUID]:
+) -> tuple[str, uuid.UUID, uuid.UUID, list[dict]]:
 
     result = await db.execute(select(Tenant).where(Tenant.bot_id == bot_id))
     tenant = result.scalar_one_or_none()
@@ -371,6 +417,40 @@ async def handle_chat(
             except InvalidToken:
                 logger.warning(f"Invalid Zapier token for tenant {tenant.id}")
 
+        # ── HubSpot Contact sync (async, fire-and-forget) ──
+        # Only sync once we have an email — HubSpot keys contacts on email.
+        if lead_updated and conv.visitor_email and tenant.hubspot_access_token:
+            from app.core.encryption import decrypt_secret, InvalidToken
+            try:
+                hubspot_token = decrypt_secret(tenant.hubspot_access_token)
+                asyncio.create_task(
+                    hubspot_service.sync_lead(
+                        token=hubspot_token,
+                        email=conv.visitor_email,
+                        name=conv.visitor_name,
+                        phone=conv.visitor_phone,
+                        business_name=tenant.business_name,
+                    )
+                )
+            except InvalidToken:
+                logger.warning(f"Invalid HubSpot token for tenant {tenant.id}")
+
+        # ── Salesforce Lead upsert (async, fire-and-forget) ──
+        # Mirrors HubSpot: only push once we have an email, and never block chat
+        # if Salesforce is unreachable. push_lead_to_salesforce decrypts creds
+        # internally and silently returns if Salesforce is not configured.
+        if lead_updated and conv.visitor_email:
+            asyncio.create_task(
+                lead_capture_service.push_lead_to_salesforce(
+                    tenant=tenant,
+                    conversation_id=str(conv.id),
+                    name=conv.visitor_name,
+                    email=conv.visitor_email,
+                    phone=conv.visitor_phone,
+                    message=message,
+                )
+            )
+
     # ── Goals Evaluation ──
     from app.services import goal_service
     await goal_service.evaluate_goals(tenant.id, conv.id, message, page_url, db)
@@ -403,23 +483,102 @@ async def handle_chat(
     # Commit the user message so it's in DB even if AI call fails
     await db.commit()
 
+    # ── Business hours enforcement ──
+    # If business hours are enforced AND the business is currently closed, skip
+    # AI inference, respond with the configured closed message, mark the
+    # conversation as pending so an agent picks it up when reopened, and fire
+    # the escalation alert.
+    if widget and not business_hours_service.is_open(widget):
+        closed_msg = business_hours_service.get_closed_message(widget)
+        conv.status = "pending"
+        closed_msg_id = uuid.uuid4()
+        db.add(WebMessage(
+            id=closed_msg_id, conversation_id=conv.id,
+            role=MessageRole.assistant, content=closed_msg, tokens_used=0,
+        ))
+        await db.commit()
+        await append_conversation_message(str(bot_id), visitor_id, "assistant", closed_msg)
+
+        closed_payload = {
+            "id": str(closed_msg_id),
+            "role": "assistant",
+            "content": closed_msg,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await publish_to_conversation(str(conv.id), closed_payload)
+        await publish_to_tenant(str(tenant.id), {
+            "type": "new_message",
+            "conversation_id": str(conv.id),
+            "message": closed_payload,
+        })
+
+        # Fire-and-forget escalation alert so an agent knows a visitor reached
+        # out outside business hours.
+        async def _notify_after_hours() -> None:
+            try:
+                primary_to = tenant.primary_notification_email or tenant.email
+                cc_list = [
+                    addr for addr in (tenant.notification_emails or [])
+                    if addr.lower() != primary_to.lower()
+                ]
+                await asyncio.to_thread(
+                    email_service.send_ai_escalation,
+                    to=primary_to,
+                    business_name=tenant.business_name,
+                    conversation_id=str(conv.id),
+                    visitor_name=conv.visitor_name,
+                    visitor_email=conv.visitor_email,
+                    visitor_message=message,
+                    error_detail="Visitor contacted outside business hours",
+                    cc=cc_list or None,
+                )
+            except Exception as e:
+                logger.warning(f"[Business Hours] Notification failed: {e}")
+
+        asyncio.create_task(_notify_after_hours())
+        return closed_msg, closed_msg_id, conv.id, []
+
     # ── Human Agent Takeover ──
     # If a human is talking, skip the AI completely. The widget treats the
     # "__human_mode__" sentinel as "don't render a bot reply" but still needs
     # a valid message_id + conversation_id per ChatResponse schema.
     if conv.mode == "human":
-        return "__human_mode__", user_msg_id, conv.id
+        return "__human_mode__", user_msg_id, conv.id, []
 
     # ── AI Reply ──
     history = await get_conversation_history(str(bot_id), visitor_id)
     search_query = await _rephrase_query(
-        list(history), message, 
-        ai_provider=widget.ai_provider if widget else None, 
+        list(history), message,
+        ai_provider=widget.ai_provider if widget else None,
         ai_model=widget.ai_model if widget else None
     )
-    
+
     embedding = await _embed_query(search_query)
-    context_chunks = await _retrieve_chunks(tenant.id, search_query, embedding, db)
+    context_chunks, citations, top_similarity = await _retrieve_chunks(
+        tenant.id, search_query, embedding, db
+    )
+
+    # ── B3. Confidence-based handoff ──
+    # If enabled and the best chunk is below threshold, hand off to a human
+    # using the same flow as an AI provider failure.
+    if (
+        widget
+        and getattr(widget, "auto_handoff_enabled", False)
+        and conv.mode == "ai"
+        and embedding is not None  # only meaningful when we have similarity scores
+        and top_similarity < float(getattr(widget, "confidence_threshold", 0.5) or 0.5)
+    ):
+        return await _escalate_to_human(
+            tenant=tenant, conv=conv, visitor_message=message,
+            error_detail=(
+                f"Low confidence: top similarity {top_similarity:.3f} < "
+                f"threshold {widget.confidence_threshold:.3f}"
+            ),
+            db=db,
+            fallback_message=(
+                "I'm not fully sure about this — connecting you to a teammate."
+            ),
+        )
 
     messages = list(history)
     if attachment_url:
@@ -443,7 +602,11 @@ async def handle_chat(
         )
 
     ai_msg_id = uuid.uuid4()
-    db.add(WebMessage(id=ai_msg_id, conversation_id=conv.id, role=MessageRole.assistant, content=reply, tokens_used=tokens_used))
+    db.add(WebMessage(
+        id=ai_msg_id, conversation_id=conv.id, role=MessageRole.assistant,
+        content=reply, tokens_used=tokens_used,
+        citations=citations or None,
+    ))
     tenant.message_count_month += 1
     await db.commit()
 
@@ -454,6 +617,7 @@ async def handle_chat(
         "id": str(ai_msg_id),
         "role": "assistant",
         "content": reply,
+        "citations": citations or None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await publish_to_conversation(str(conv.id), ai_payload)
@@ -474,13 +638,14 @@ async def handle_chat(
                 matched_keywords=matched,
             ))
 
-    return reply, ai_msg_id, conv.id
+    return reply, ai_msg_id, conv.id, citations
 
 
 async def _escalate_to_human(
     *, tenant: Tenant, conv: WebConversation, visitor_message: str,
     error_detail: str, db: AsyncSession,
-) -> tuple[str, uuid.UUID, uuid.UUID]:
+    fallback_message: str | None = None,
+) -> tuple[str, uuid.UUID, uuid.UUID, list[dict]]:
     """
     Called when the AI provider fails. Flips the conversation to human mode,
     stores a fallback reply, broadcasts to the dashboard, and fires email + Slack
@@ -488,19 +653,21 @@ async def _escalate_to_human(
     """
     conv.mode = "human"
 
+    final_message = fallback_message or AI_FAILURE_FALLBACK
+
     fallback_msg_id = uuid.uuid4()
     db.add(WebMessage(
         id=fallback_msg_id, conversation_id=conv.id,
-        role=MessageRole.assistant, content=AI_FAILURE_FALLBACK, tokens_used=0,
+        role=MessageRole.assistant, content=final_message, tokens_used=0,
     ))
     await db.commit()
 
-    await append_conversation_message(str(tenant.bot_id), conv.visitor_id, "assistant", AI_FAILURE_FALLBACK)
+    await append_conversation_message(str(tenant.bot_id), conv.visitor_id, "assistant", final_message)
 
     fallback_payload = {
         "id": str(fallback_msg_id),
         "role": "assistant",
-        "content": AI_FAILURE_FALLBACK,
+        "content": final_message,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await publish_to_conversation(str(conv.id), fallback_payload)
@@ -579,7 +746,7 @@ async def _escalate_to_human(
 
     asyncio.create_task(_notify())
 
-    return AI_FAILURE_FALLBACK, fallback_msg_id, conv.id
+    return final_message, fallback_msg_id, conv.id, []
 
 
 async def _notify_keyword_alert(

@@ -64,6 +64,15 @@ class WebConversation(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # Lead scoring — derived from behavior signals (email/phone capture, hot keywords,
+    # pricing-page visits, goal completions, etc.). Recomputed by lead_scoring_service.
+    lead_score: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0", index=True
+    )
+    lead_score_factors: Mapped[dict | None] = mapped_column(
+        postgresql.JSONB, nullable=True
+    )
+
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="conversations")
     assigned_user: Mapped["User | None"] = relationship("User", foreign_keys=[assigned_user_id])
     messages: Mapped[list["WebMessage"]] = relationship(
@@ -85,6 +94,13 @@ class WebMessage(Base):
     is_internal: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # B1 — RAG citations (list of {document_id, title, type}) — nullable JSONB
+    citations: Mapped[list | None] = mapped_column(
+        postgresql.JSONB, nullable=True
+    )
+    # B2 — Visitor feedback on assistant replies. -1 = thumbs-down, 1 = thumbs-up
+    feedback_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feedback_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

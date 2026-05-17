@@ -12,6 +12,8 @@ export interface Conversation {
   status?: ConversationStatus;
   resolved_at?: string | null;
   resolved_by_user_id?: string | null;
+  lead_score?: number;
+  lead_score_factors?: Record<string, number> | null;
 }
 
 export interface Message {
@@ -31,16 +33,20 @@ export interface AddNoteArgs {
 interface ListConversationsArg {
   page?: number;
   status?: string; // comma-separated statuses, e.g. "open,pending"
+  sort?: "lead_score_desc";
+  min_score?: number;
 }
 
 export const conversationsApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     listConversations: build.query<Conversation[], ListConversationsArg | number | void>({
       query: (arg) => {
-        const { page = 1, status }: ListConversationsArg =
+        const { page = 1, status, sort, min_score }: ListConversationsArg =
           typeof arg === "number" ? { page: arg } : (arg ?? {});
         const params = new URLSearchParams({ page: String(page) });
         if (status) params.set("status", status);
+        if (sort) params.set("sort", sort);
+        if (typeof min_score === "number") params.set("min_score", String(min_score));
         return `/api/conversations/?${params.toString()}`;
       },
       providesTags: ["Conversations"],

@@ -45,6 +45,28 @@ function StatusPill({ status }: { status?: string }) {
   );
 }
 
+function leadScoreTier(score: number): { color: string; label: string } {
+  if (score >= 60) return { color: "bg-red-50 text-red-600 border-red-100", label: "Hot" };
+  if (score >= 30) return { color: "bg-amber-50 text-amber-700 border-amber-100", label: "Warm" };
+  return { color: "bg-slate-100 text-slate-500 border-slate-200", label: "Cold" };
+}
+
+function LeadScoreBadge({ score }: { score?: number | null }) {
+  const s = Math.max(0, Math.min(100, Math.round(score ?? 0)));
+  const { color } = leadScoreTier(s);
+  return (
+    <span
+      title={`Lead score: ${s}`}
+      className={`px-1.5 py-0.5 text-[9px] font-black uppercase rounded border inline-flex items-center gap-1 ${color}`}
+    >
+      <span aria-hidden>{s >= 60 ? "🔥" : s >= 30 ? "✨" : "•"}</span>
+      <span>{s}</span>
+    </span>
+  );
+}
+
+type SortOption = "recent" | "lead_score_desc";
+
 const FILTER_TABS: { id: StatusFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "open", label: "Open" },
@@ -127,6 +149,7 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
       if (cannedOpen) setCannedOpen(false);
       return;
     }
+    if (value.trim().length > 0) sendAgentTyping();
     // Detect a slash token at the start of the input or after whitespace.
     const match = value.match(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/);
     if (match) {
@@ -190,9 +213,14 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
   const [rating, setRating] = useState<{ rating: number; comment: string | null; created_at: string } | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sortBy, setSortBy] = useState<SortOption>("recent");
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [visitorTyping, setVisitorTyping] = useState(false);
+  const visitorTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastAgentTypingSentRef = useRef<number>(0);
+  const tenantWsRef = useRef<WebSocket | null>(null);
   const [assignFilter, setAssignFilter] = useState<"all" | "mine" | "unassigned">("all");
   const [members, setMembers] = useState<{ id: string; email: string }[]>([]);
   const [assignMenuOpen, setAssignMenuOpen] = useState(false);
@@ -227,7 +255,7 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
     setLoading(true);
     loadPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, assignFilter]);
+  }, [statusFilter, assignFilter, sortBy]);
 
   async function loadPage(page: number) {
     try {
@@ -236,7 +264,8 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
         assignFilter === "mine" ? "me" :
         assignFilter === "unassigned" ? "unassigned" :
         undefined;
-      const res = await api.listConversations(page, statusParam, assignParam);
+      const sortParam = sortBy === "lead_score_desc" ? "lead_score_desc" : undefined;
+      const res = await api.listConversations(page, statusParam, assignParam, sortParam);
       if (page === 1) setConversations(res);
       else setConversations(prev => [...prev, ...res]);
       setHasMoreConvs(res.length === 20);
@@ -307,9 +336,20 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/^https?:\/\//, "") || "localhost:8000";
     const ws = new WebSocket(`${protocol}//${baseUrl}/ws/tenant/${tenant.id}`);
+    tenantWsRef.current = ws;
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
+      if (data.type === "typing") {
+        // Show visitor-typing only when the currently-selected conversation
+        // matches the event and the typing party is the visitor.
+        if (data.who === "visitor" && selected?.id === data.conversation_id) {
+          setVisitorTyping(true);
+          if (visitorTypingTimerRef.current) clearTimeout(visitorTypingTimerRef.current);
+          visitorTypingTimerRef.current = setTimeout(() => setVisitorTyping(false), 5000);
+        }
+        return;
+      }
       if (data.type === "new_message") {
         const { conversation_id, message } = data;
         setConversations((prev) => {
@@ -337,8 +377,34 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
         }
       }
     };
-    return () => ws.close();
+    return () => {
+      ws.close();
+      tenantWsRef.current = null;
+    };
   }, [tenant, selected?.id]);
+
+  // Clear visitor typing indicator when switching conversations
+  useEffect(() => {
+    setVisitorTyping(false);
+    if (visitorTypingTimerRef.current) {
+      clearTimeout(visitorTypingTimerRef.current);
+      visitorTypingTimerRef.current = null;
+    }
+  }, [selected?.id]);
+
+  function sendAgentTyping() {
+    if (!selected || !tenantWsRef.current || tenantWsRef.current.readyState !== WebSocket.OPEN) return;
+    const now = Date.now();
+    if (now - lastAgentTypingSentRef.current < 3000) return;
+    lastAgentTypingSentRef.current = now;
+    try {
+      tenantWsRef.current.send(JSON.stringify({
+        type: "typing",
+        who: "agent",
+        conversation_id: selected.id,
+      }));
+    } catch { /* ignore */ }
+  }
 
   // ── Actions ──
   async function openConversation(conv: any) {
@@ -519,6 +585,17 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                 ))}
               </select>
             </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as SortOption)}
+                title="Sort conversations"
+                className="flex-1 min-w-0 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-violet-500 focus:bg-white transition-all cursor-pointer"
+              >
+                <option value="recent">Sort: Most recent</option>
+                <option value="lead_score_desc">Sort: Hot leads first</option>
+              </select>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
             {filtered.map(conv => {
@@ -549,6 +626,7 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                     <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
                     <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">{conv.message_count || 0} msg</span>
                     <span className="ml-auto flex items-center gap-1.5">
+                      <LeadScoreBadge score={conv.lead_score} />
                       {conv.assigned_user_id && (
                         <span
                           title={`Assigned to ${conv.assigned_user_email || "member"}`}
@@ -829,7 +907,35 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                             }`}>
                               {msg.content}
                             </div>
-                            <span className="text-[10px] text-slate-300 mt-1.5 font-bold uppercase tracking-wide">{formatTime(msg.created_at)}</span>
+                            {/* B1 — citations under bot bubbles */}
+                            {isBot && Array.isArray(msg.citations) && msg.citations.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                {msg.citations.map((c: any) => (
+                                  <span
+                                    key={c.document_id}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-50 border border-violet-100 text-[10px] font-semibold text-violet-700"
+                                    title={c.type ? `${c.title} (${c.type})` : c.title}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 11 }}>description</span>
+                                    Source: {c.title}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wide">{formatTime(msg.created_at)}</span>
+                              {/* B2 — feedback rating inline */}
+                              {isBot && (msg.feedback_rating === 1 || msg.feedback_rating === -1) && (
+                                <span
+                                  className={`inline-flex items-center text-[12px] ${
+                                    msg.feedback_rating === 1 ? "text-emerald-500" : "text-rose-500"
+                                  }`}
+                                  title={msg.feedback_comment || (msg.feedback_rating === 1 ? "Visitor liked this reply" : "Visitor disliked this reply")}
+                                >
+                                  {msg.feedback_rating === 1 ? "👍" : "👎"}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           {isUser && (
                             <div className="w-9 h-9 rounded-xl bg-violet-50 border border-violet-100 flex items-center justify-center shrink-0 relative shadow-sm">
@@ -859,6 +965,16 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
               {/* Input Area */}
               <div className="p-6 bg-white border-t border-slate-50 shrink-0">
                 <div className="max-w-4xl mx-auto space-y-3">
+                  {visitorTyping && (
+                    <div className="flex items-center gap-2 text-[11px] font-bold text-violet-600 uppercase tracking-wider">
+                      <span className="inline-flex gap-0.5">
+                        <span className="w-1 h-1 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+                        <span className="w-1 h-1 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: "120ms" }} />
+                        <span className="w-1 h-1 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: "240ms" }} />
+                      </span>
+                      Visitor is typing…
+                    </div>
+                  )}
                   {/* Reply / Internal note toggle */}
                   <div className="inline-flex items-center bg-slate-100 rounded-full p-1 gap-1">
                     <button
@@ -1005,6 +1121,54 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
           </div>
 
           <div className="space-y-8">
+            {selected && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] block">Lead Score</label>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!selected) return;
+                      try {
+                        const res = await api.recomputeLeadScore(selected.id);
+                        setSelected((prev: any) => prev ? { ...prev, lead_score: res.lead_score, lead_score_factors: res.lead_score_factors } : null);
+                        setConversations(prev => prev.map(c => c.id === selected.id ? { ...c, lead_score: res.lead_score, lead_score_factors: res.lead_score_factors } : c));
+                      } catch (err) { console.error(err); }
+                    }}
+                    className="text-[10px] font-bold text-violet-600 hover:text-violet-800 uppercase tracking-wider"
+                    title="Recompute lead score"
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div className={`p-4 rounded-2xl border ${leadScoreTier(selected.lead_score ?? 0).color}`}>
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="text-3xl font-black leading-none">
+                      {Math.max(0, Math.min(100, Math.round(selected.lead_score ?? 0)))}
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-widest opacity-70">
+                      / 100 · {leadScoreTier(selected.lead_score ?? 0).label}
+                    </span>
+                  </div>
+                  {selected.lead_score_factors && Object.keys(selected.lead_score_factors).length > 0 ? (
+                    <table className="w-full text-[11px] mt-2">
+                      <tbody>
+                        {Object.entries(selected.lead_score_factors as Record<string, number>).map(([key, value]) => (
+                          <tr key={key} className="border-t border-current/10">
+                            <td className="py-1 pr-2 font-medium opacity-80 capitalize">
+                              {key.replace(/_/g, " ")}
+                            </td>
+                            <td className="py-1 text-right font-black">+{value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="text-[11px] opacity-70 mt-1">No signals captured yet.</p>
+                  )}
+                </div>
+              </div>
+            )}
             {rating && (
               <div>
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-3 block">CSAT Rating</label>

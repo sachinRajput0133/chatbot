@@ -158,3 +158,139 @@ async def notify_zapier_webhook(
             await client.post(webhook_url, json=payload)
     except Exception as e:
         logger.warning(f"[Zapier] Failed to push lead for {conversation_id}: {e}")
+
+
+# ── Salesforce native CRM bridge ──────────────────────────────────────────────
+# Kept here (not in salesforce_service.py) so chat_service can call a single
+# tenant-aware entry point alongside the other CRM bridges. Helpers do their
+# own credential decryption + error swallowing so the chat flow never blocks.
+
+async def push_lead_to_salesforce(
+    *,
+    tenant,
+    conversation_id: str,
+    name: str | None,
+    email: str | None,
+    phone: str | None,
+    message: str,
+) -> None:
+    """Upsert the lead into Salesforce. No-ops if Salesforce isn't configured."""
+    import logging
+    logger = logging.getLogger(__name__)
+    if not email:
+        return
+    from app.core.encryption import decrypt_secret, InvalidToken
+    from app.services import salesforce_service
+    from app.services.salesforce_service import SalesforceCreds
+
+    if not (
+        tenant.salesforce_client_id
+        and tenant.salesforce_client_secret
+        and tenant.salesforce_username
+        and tenant.salesforce_password
+    ):
+        return
+    try:
+        creds = SalesforceCreds(
+            client_id=decrypt_secret(tenant.salesforce_client_id),
+            client_secret=decrypt_secret(tenant.salesforce_client_secret),
+            username=decrypt_secret(tenant.salesforce_username),
+            password=decrypt_secret(tenant.salesforce_password),
+        )
+    except InvalidToken:
+        logger.warning(f"[Salesforce] Unreadable creds for tenant {tenant.id}")
+        return
+
+    # Split name into first/last for Salesforce Lead.
+    first_name = None
+    last_name = None
+    if name:
+        parts = name.strip().split(None, 1)
+        if len(parts) == 2:
+            first_name, last_name = parts[0], parts[1]
+        else:
+            last_name = parts[0]
+
+    properties = {
+        "first_name": first_name,
+        "last_name": last_name,
+        "name": name,
+        "phone": phone,
+        "company": tenant.business_name,
+        "lead_source": "Chatbot",
+        "description": f"Captured via chatbot conversation {conversation_id}.\n\nLatest message:\n{message}",
+    }
+    try:
+        await salesforce_service.upsert_lead(creds, email, properties)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[Salesforce] push_lead failed for {conversation_id}: {e}")
+
+
+async def attach_transcript_to_salesforce(
+    *,
+    tenant,
+    email: str,
+    subject: str,
+    body: str,
+) -> None:
+    """Attach a transcript Task to the Lead identified by email.
+
+    Looks up the Lead via SOQL by Email, then creates a Task. Safe to call from
+    a background task — all errors are logged and swallowed.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    if not email:
+        return
+    from app.core.encryption import decrypt_secret, InvalidToken
+    from app.services import salesforce_service
+    from app.services.salesforce_service import SalesforceCreds, _login, API_VERSION
+    import httpx
+
+    if not (
+        tenant.salesforce_client_id
+        and tenant.salesforce_client_secret
+        and tenant.salesforce_username
+        and tenant.salesforce_password
+    ):
+        return
+    try:
+        creds = SalesforceCreds(
+            client_id=decrypt_secret(tenant.salesforce_client_id),
+            client_secret=decrypt_secret(tenant.salesforce_client_secret),
+            username=decrypt_secret(tenant.salesforce_username),
+            password=decrypt_secret(tenant.salesforce_password),
+        )
+    except InvalidToken:
+        logger.warning(f"[Salesforce] Unreadable creds for tenant {tenant.id}")
+        return
+
+    try:
+        session = await _login(creds)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[Salesforce] attach_transcript login failed: {e}")
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            soql = f"SELECT Id FROM Lead WHERE Email = '{email.replace(chr(39), chr(92) + chr(39))}' LIMIT 1"
+            q = await client.get(
+                f"{session.instance_url}/services/data/{API_VERSION}/query",
+                params={"q": soql},
+                headers={"Authorization": f"Bearer {session.access_token}"},
+            )
+        if q.status_code >= 300:
+            logger.warning(f"[Salesforce] Lead lookup failed HTTP {q.status_code}: {q.text[:200]}")
+            return
+        records = q.json().get("records") or []
+        if not records:
+            return
+        lead_id = records[0]["Id"]
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[Salesforce] Lead lookup error: {e}")
+        return
+
+    try:
+        await salesforce_service.attach_note(creds, lead_id, subject, body)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[Salesforce] attach_note failed: {e}")

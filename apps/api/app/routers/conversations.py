@@ -34,6 +34,16 @@ async def list_conversations(
         None,
         description="Filter by assignee. Accepts 'me', 'unassigned', or a user UUID.",
     ),
+    sort: str | None = Query(
+        None,
+        description="Optional sort. Supported: 'lead_score_desc'. Defaults to last_message_at desc.",
+    ),
+    min_score: int | None = Query(
+        None,
+        ge=0,
+        le=100,
+        description="Filter to conversations with lead_score >= this value.",
+    ),
     user_id: str = Depends(require_permission("conversations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -44,6 +54,8 @@ async def list_conversations(
         select(WebConversation)
         .where(WebConversation.tenant_id == tenant.id)
     )
+    if min_score is not None:
+        stmt = stmt.where(WebConversation.lead_score >= min_score)
     if status:
         wanted = {s.strip() for s in status.split(",") if s.strip()}
         invalid = wanted - ALLOWED_STATUSES
@@ -73,8 +85,12 @@ async def list_conversations(
                 raise HTTPException(status_code=404, detail="Assignee not found in tenant")
             stmt = stmt.where(WebConversation.assigned_user_id == target_uuid)
 
+    if sort == "lead_score_desc":
+        order_clause = (WebConversation.lead_score.desc(), WebConversation.last_message_at.desc())
+    else:
+        order_clause = (WebConversation.last_message_at.desc(),)
     result = await db.execute(
-        stmt.order_by(WebConversation.last_message_at.desc())
+        stmt.order_by(*order_clause)
             .offset(offset)
             .limit(limit)
     )
@@ -127,6 +143,8 @@ async def list_conversations(
             assigned_user_id=conv.assigned_user_id,
             assigned_user_email=assignee_email_map.get(conv.assigned_user_id) if conv.assigned_user_id else None,
             assigned_at=conv.assigned_at,
+            lead_score=conv.lead_score or 0,
+            lead_score_factors=conv.lead_score_factors,
         ))
     return out
 
@@ -210,6 +228,8 @@ async def get_conversation(
         assigned_user_id=conv.assigned_user_id,
         assigned_user_email=assigned_email,
         assigned_at=conv.assigned_at,
+        lead_score=conv.lead_score or 0,
+        lead_score_factors=conv.lead_score_factors,
     )
 
 
@@ -406,6 +426,7 @@ async def set_conversation_status(
             detail=f"Status must be one of {sorted(ALLOWED_STATUSES)}",
         )
 
+    previous_status = conv.status
     conv.status = new_status
     if new_status == "resolved":
         conv.resolved_at = datetime.now(timezone.utc)
@@ -413,10 +434,75 @@ async def set_conversation_status(
             conv.resolved_by_user_id = uuid.UUID(user_id)
         except (ValueError, TypeError):
             conv.resolved_by_user_id = None
+        # ── Salesforce: attach transcript as a Task on the matching Lead ──
+        # Fire-and-forget; never blocks the resolve flow if Salesforce is down.
+        if conv.visitor_email:
+            import asyncio as _asyncio
+            from app.services import lead_capture_service as _lcs
+            msgs_res = await db.execute(
+                select(WebMessage)
+                .where(WebMessage.conversation_id == conv.id)
+                .order_by(WebMessage.created_at.asc())
+            )
+            transcript_lines = []
+            for m in msgs_res.scalars().all():
+                role = m.role.value if hasattr(m.role, "value") else str(m.role)
+                transcript_lines.append(f"[{role}] {m.content}")
+            transcript = "\n".join(transcript_lines) or "(empty conversation)"
+            _asyncio.create_task(
+                _lcs.attach_transcript_to_salesforce(
+                    tenant=tenant,
+                    email=conv.visitor_email,
+                    subject=f"Chatbot conversation {conv.id} (resolved)",
+                    body=transcript,
+                )
+            )
     elif new_status == "open":
         # Reopening clears the resolution stamp
         conv.resolved_at = None
         conv.resolved_by_user_id = None
+
+    # ── HubSpot: attach transcript on first resolve (fire-and-forget) ──
+    if (
+        new_status == "resolved"
+        and previous_status != "resolved"
+        and conv.visitor_email
+        and tenant.hubspot_access_token
+    ):
+        import asyncio as _asyncio
+        from app.core.encryption import decrypt_secret as _decrypt, InvalidToken as _InvalidToken
+        from app.services import hubspot_service as _hubspot
+
+        try:
+            _hs_token = _decrypt(tenant.hubspot_access_token)
+        except _InvalidToken:
+            _hs_token = None
+
+        if _hs_token:
+            msgs_result = await db.execute(
+                select(WebMessage)
+                .where(WebMessage.conversation_id == conv.id)
+                .order_by(WebMessage.created_at.asc())
+            )
+            messages = msgs_result.scalars().all()
+            lines = []
+            for m in messages:
+                role = m.role.value if hasattr(m.role, "value") else str(m.role)
+                ts = m.created_at.strftime("%Y-%m-%d %H:%M") if m.created_at else ""
+                lines.append(f"[{ts}] {role.upper()}: {m.content or ''}")
+            transcript = (
+                f"Chat transcript — conversation {conv.id}\n"
+                f"Visitor: {conv.visitor_name or ''} <{conv.visitor_email}>\n"
+                f"Resolved at: {datetime.now(timezone.utc).isoformat()}\n\n"
+                + "\n".join(lines)
+            )
+            _asyncio.create_task(
+                _hubspot.attach_transcript_by_email(
+                    token=_hs_token,
+                    email=conv.visitor_email,
+                    transcript_body=transcript,
+                )
+            )
 
     await db.commit()
     await db.refresh(conv)
@@ -814,4 +900,34 @@ async def email_conversation_transcript(
         conversation_id=str(conv.id),
     )
     return {"status": "queued", "to_email": payload.to_email}
+
+
+# ── Lead scoring ─────────────────────────────────────────────────────────────
+# Additions for the lead scoring feature live at the bottom of this file so
+# they don't conflict with other agents editing the router concurrently.
+
+@router.post("/{conversation_id}/recompute-score")
+async def recompute_lead_score(
+    conversation_id: uuid.UUID,
+    user_id: str = Depends(require_permission("conversations", "view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually recompute the lead score for a conversation and return the result."""
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    result = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
+            WebConversation.tenant_id == tenant.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    from app.services.lead_scoring_service import recompute_score
+    score, factors = await recompute_score(conv, db)
+    conv.lead_score = score
+    conv.lead_score_factors = factors
+    await db.commit()
+    return {"lead_score": score, "lead_score_factors": factors}
 

@@ -1,13 +1,13 @@
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
 from app.models.tenant import Tenant
-from app.models.conversation import WebConversation, WebMessage
+from app.models.conversation import WebConversation, WebMessage, MessageRole
 from app.schemas.chat import ChatRequest, ChatResponse, ConversationSummary
 from app.services.chat_service import handle_chat
 
@@ -84,6 +84,9 @@ class HistoryMessage(BaseModel):
     content: str
     attachment_url: str | None = None
     created_at: datetime
+    id: uuid.UUID | None = None
+    citations: list[dict] | None = None
+    feedback_rating: int | None = None
 
 
 @router.get("/api/chat/{bot_id}/history")
@@ -125,7 +128,15 @@ async def get_chat_history(
     )
     messages = result.scalars().all()
     return [
-        HistoryMessage(role=m.role.value, content=m.content, attachment_url=m.attachment_url, created_at=m.created_at)
+        HistoryMessage(
+            id=m.id,
+            role=m.role.value,
+            content=m.content,
+            attachment_url=m.attachment_url,
+            created_at=m.created_at,
+            citations=m.citations,
+            feedback_rating=m.feedback_rating,
+        )
         for m in messages
     ]
 
@@ -134,13 +145,14 @@ async def get_chat_history(
 async def chat(
     bot_id: uuid.UUID,
     data: ChatRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Public endpoint — called by widget.js on every message.
     CORS is open (any origin) — configured in main.py.
     """
-    reply, message_id, conversation_id = await handle_chat(
+    reply, message_id, conversation_id, citations = await handle_chat(
         bot_id=bot_id,
         message=data.message,
         visitor_id=data.visitor_id,
@@ -150,7 +162,18 @@ async def chat(
         user_info=data.user_info,
         attachment_url=data.attachment_url,
     )
-    return ChatResponse(reply=reply, message_id=message_id, conversation_id=conversation_id)
+
+    # Recompute the lead score after every visitor message. Runs in a background
+    # task with its own DB session so it doesn't delay the chat response.
+    from app.services.lead_scoring_service import recompute_score_in_new_session
+    background_tasks.add_task(recompute_score_in_new_session, conversation_id)
+
+    return ChatResponse(
+        reply=reply,
+        message_id=message_id,
+        conversation_id=conversation_id,
+        citations=citations or None,
+    )
 
 
 @router.get("/api/chat/{bot_id}/conversations", response_model=list[ConversationSummary])
@@ -211,3 +234,37 @@ async def get_visitor_conversations(
         )
 
     return summaries
+
+
+# ── B2. Public feedback endpoint ─────────────────────────────────────────────
+
+class FeedbackIn(BaseModel):
+    rating: int  # -1 (thumbs down) or 1 (thumbs up)
+    comment: str | None = None
+
+
+@router.post("/api/widget/messages/{message_id}/feedback", status_code=204)
+async def submit_message_feedback(
+    message_id: uuid.UUID,
+    payload: FeedbackIn,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    PUBLIC endpoint — visitors rate an AI/bot reply 👍 or 👎 from the widget.
+    No auth. Validates the message exists and was produced by the bot.
+    """
+    if payload.rating not in (-1, 1):
+        raise HTTPException(status_code=400, detail="rating must be -1 or 1")
+
+    result = await db.execute(select(WebMessage).where(WebMessage.id == message_id))
+    msg = result.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.role != MessageRole.assistant:
+        # Visitors can only rate bot replies, not their own messages or agent replies.
+        raise HTTPException(status_code=400, detail="Only bot messages can be rated")
+
+    msg.feedback_rating = payload.rating
+    msg.feedback_comment = (payload.comment or None) if payload.comment else None
+    await db.commit()
+    return None

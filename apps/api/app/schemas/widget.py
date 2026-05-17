@@ -25,6 +25,7 @@ class WidgetConfigOut(BaseModel):
     company_address: str | None = None
     company_phone: str | None = None
     business_hours: str | None = None
+    enforce_business_hours: bool = False
     tone_of_voice: str | None = None
     target_audience: str | None = None
     brand_values: str | None = None
@@ -45,6 +46,9 @@ class WidgetConfigOut(BaseModel):
     # URL-based widget targeting
     url_targeting_mode: str = "all"
     url_targeting_patterns: list[str] = []
+    # B3 — Confidence-based handoff
+    confidence_threshold: float = 0.5
+    auto_handoff_enabled: bool = False
     # Lead capture (included so widget knows what form to show)
     lead_capture: LeadCaptureInfo = LeadCaptureInfo()
 
@@ -73,12 +77,16 @@ class WidgetConfigUpdate(BaseModel):
     # URL-based widget targeting
     url_targeting_mode: str | None = None
     url_targeting_patterns: list[str] | None = None
+    # B3 — Confidence-based handoff
+    confidence_threshold: float | None = None
+    auto_handoff_enabled: bool | None = None
     # Brand Voice
     company_website: str | None = None
     company_email: str | None = None
     company_address: str | None = None
     company_phone: str | None = None
     business_hours: str | None = None
+    enforce_business_hours: bool | None = None
     tone_of_voice: str | None = None
     target_audience: str | None = None
     brand_values: str | None = None

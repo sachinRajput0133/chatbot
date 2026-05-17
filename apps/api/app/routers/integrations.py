@@ -36,8 +36,12 @@ from app.schemas.integrations import (
     SetZapierWebhookRequest,
     TestZapierRequest,
     TestZapierResponse,
+    HubSpotIntegrationStatus,
+    SetHubSpotTokenRequest,
+    TestHubSpotResponse,
 )
-from app.services import email_service, whatsapp_service
+from app.services import email_service, whatsapp_service, hubspot_service
+from app.services.hubspot_service import HubSpotAuthError, HubSpotError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
@@ -475,4 +479,106 @@ async def test_zapier_webhook(
         return TestZapierResponse(ok=True)
     except httpx.HTTPError as e:
         return TestZapierResponse(ok=False, detail=str(e))
+
+
+# ── HubSpot ───────────────────────────────────────────────────────────────────
+
+async def _resolve_hubspot_token(tenant: Tenant) -> str | None:
+    """Decrypt the stored token, or return None if unreadable/missing."""
+    if not tenant.hubspot_access_token:
+        return None
+    try:
+        return decrypt_secret(tenant.hubspot_access_token)
+    except InvalidToken:
+        logger.warning(f"[HubSpot] Unreadable token for tenant {tenant.id}")
+        return None
+
+
+@router.get("/hubspot", response_model=HubSpotIntegrationStatus)
+async def get_hubspot_status(
+    user_id: str = Depends(require_permission("integrations", "view")),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    token = await _resolve_hubspot_token(tenant)
+    if not token:
+        return HubSpotIntegrationStatus(connected=False)
+
+    # Best-effort: try to surface the account name. If HubSpot is down or the
+    # token was revoked, still report connected=True from our side — explicit
+    # test/disconnect actions are how the user reconciles state.
+    try:
+        info = await hubspot_service.test_connection(token)
+        return HubSpotIntegrationStatus(
+            connected=True,
+            account_name=info.get("account_name"),
+            portal_id=info.get("portal_id"),
+        )
+    except HubSpotAuthError:
+        # Token is dead — clear it so the UI shows the "Connect" form.
+        logger.warning(f"[HubSpot] Stored token rejected for tenant {tenant.id}, clearing.")
+        tenant.hubspot_access_token = None
+        await db.commit()
+        return HubSpotIntegrationStatus(connected=False)
+    except HubSpotError as exc:
+        logger.warning(f"[HubSpot] status fetch failed for tenant {tenant.id}: {exc}")
+        return HubSpotIntegrationStatus(connected=True)
+
+
+@router.post("/hubspot", response_model=HubSpotIntegrationStatus)
+async def set_hubspot_token(
+    data: SetHubSpotTokenRequest,
+    user_id: str = Depends(require_permission("integrations", "manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    try:
+        info = await hubspot_service.test_connection(data.access_token)
+    except HubSpotAuthError:
+        raise HTTPException(status_code=400, detail="HubSpot rejected this token. Double-check it was copied correctly.")
+    except HubSpotError as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach HubSpot: {exc}")
+
+    tenant.hubspot_access_token = encrypt_secret(data.access_token)
+    await db.commit()
+    await db.refresh(tenant)
+    return HubSpotIntegrationStatus(
+        connected=True,
+        account_name=info.get("account_name"),
+        portal_id=info.get("portal_id"),
+    )
+
+
+@router.post("/hubspot/test", response_model=TestHubSpotResponse)
+@limiter.limit("5/minute")
+async def test_hubspot(
+    request: Request,
+    user_id: str = Depends(require_permission("integrations", "manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    token = await _resolve_hubspot_token(tenant)
+    if not token:
+        raise HTTPException(status_code=400, detail="HubSpot is not connected yet")
+
+    try:
+        info = await hubspot_service.test_connection(token)
+        return TestHubSpotResponse(ok=True, account_name=info.get("account_name"))
+    except HubSpotAuthError:
+        # Auto-clear dead token so the user gets the connect form back.
+        tenant.hubspot_access_token = None
+        await db.commit()
+        return TestHubSpotResponse(ok=False, detail="HubSpot rejected the stored token. Please reconnect.")
+    except HubSpotError as exc:
+        return TestHubSpotResponse(ok=False, detail=str(exc))
+
+
+@router.delete("/hubspot", status_code=204)
+async def delete_hubspot(
+    user_id: str = Depends(require_permission("integrations", "manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    tenant = await _get_tenant_for_user(user_id, db)
+    tenant.hubspot_access_token = None
+    await db.commit()
 

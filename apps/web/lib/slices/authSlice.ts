@@ -26,24 +26,13 @@ interface AuthState {
   } | null;
 }
 
-function loadToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("cb_token");
-}
-
-function loadUser(): AuthUser | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem("cb_user");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
+// initialState is intentionally empty on BOTH server and first client render
+// to keep SSR markup matching pre-hydration client markup (no React hydration
+// mismatch). Real auth is loaded into the store via Providers' useEffect
+// after mount — see app/providers.tsx (hydrateAuthFromStorage).
 const initialState: AuthState = {
-  token: loadToken(),
-  user: loadUser(),
+  token: null,
+  user: null,
   tenant: null,
 };
 

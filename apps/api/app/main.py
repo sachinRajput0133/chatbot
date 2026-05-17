@@ -118,6 +118,10 @@ app.include_router(ratings.router)
 app.include_router(audit.router)
 app.include_router(members.router)
 app.include_router(canned_responses.router)
+# Salesforce native CRM integration (separate router to keep merges clean
+# against the parallel HubSpot integration).
+from app.routers import salesforce as salesforce_router  # noqa: E402
+app.include_router(salesforce_router.router)
 
 
 @app.get("/health")
