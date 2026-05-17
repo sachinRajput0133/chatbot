@@ -44,6 +44,39 @@ interface WidgetConfig {
   proactive_delay?: number;
   proactive_exit_intent?: boolean;
   theme?: string;
+  url_targeting_mode?: "all" | "include" | "exclude";
+  url_targeting_patterns?: string[];
+}
+
+/**
+ * Convert a glob-style pattern (with `*` wildcards) to a RegExp anchored at start/end.
+ * Other regex metacharacters are escaped so user patterns behave literally.
+ */
+function globToRegex(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp("^" + escaped + "$");
+}
+
+function shouldShowOnCurrentUrl(
+  mode: "all" | "include" | "exclude" | undefined,
+  patterns: string[] | undefined,
+  pathname: string,
+): boolean {
+  const m = mode || "all";
+  if (m === "all") return true;
+  const pats = (patterns || []).filter((p) => p && p.trim().length > 0);
+  if (pats.length === 0) {
+    // include with no patterns => show nowhere; exclude with no patterns => show everywhere
+    return m === "exclude";
+  }
+  const matches = pats.some((p) => {
+    try {
+      return globToRegex(p).test(pathname);
+    } catch {
+      return false;
+    }
+  });
+  return m === "include" ? matches : !matches;
 }
 
 const i18n: Record<string, Record<string, string>> = {
@@ -1163,6 +1196,16 @@ const i18n: Record<string, Record<string, string>> = {
   async function init() {
     try {
       widgetConfig = await fetchConfig();
+      // URL-based targeting: skip rendering entirely if current page is excluded
+      if (
+        !shouldShowOnCurrentUrl(
+          widgetConfig.url_targeting_mode,
+          widgetConfig.url_targeting_patterns,
+          window.location.pathname,
+        )
+      ) {
+        return;
+      }
       injectStyles(widgetConfig.primary_color, widgetConfig.theme);
       buildWidget(widgetConfig);
     } catch (e) {

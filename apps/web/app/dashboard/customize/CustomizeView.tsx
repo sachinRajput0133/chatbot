@@ -7,7 +7,7 @@ const TONE_OPTIONS = ["Professional", "Friendly", "Technical", "Sales-focused", 
 const WELCOME_MAX = 150;
 
 type DeviceMode = "desktop" | "tablet" | "mobile";
-type SectionId = "appearance" | "behavior" | "lead" | "advanced" | "custom";
+type SectionId = "appearance" | "behavior" | "lead" | "targeting" | "advanced" | "custom";
 
 interface CustomizeViewProps {
   embedded?: boolean;
@@ -43,6 +43,8 @@ export default function CustomizeView({ embedded = false }: CustomizeViewProps) 
     email_followup_enabled: true,
     email_followup_subject: "",
     theme: "light",
+    url_targeting_mode: "all" as "all" | "include" | "exclude",
+    url_targeting_patterns: [] as string[],
   });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -64,9 +66,18 @@ export default function CustomizeView({ embedded = false }: CustomizeViewProps) 
     setLoading(true);
     try {
       const cleanQuestions = config.suggested_questions.filter((q) => q.trim().length > 0);
-      await api.updateWidgetConfig({ ...config, suggested_questions: cleanQuestions });
+      const cleanPatterns = (config.url_targeting_patterns || []).filter((p) => p.trim().length > 0);
+      await api.updateWidgetConfig({
+        ...config,
+        suggested_questions: cleanQuestions,
+        url_targeting_patterns: cleanPatterns,
+      });
       setSaved(true);
-      setConfig((prev) => ({ ...prev, suggested_questions: cleanQuestions }));
+      setConfig((prev) => ({
+        ...prev,
+        suggested_questions: cleanQuestions,
+        url_targeting_patterns: cleanPatterns,
+      }));
       setTimeout(() => setSaved(false), 2000);
     } finally {
       setLoading(false);
@@ -142,6 +153,17 @@ export default function CustomizeView({ embedded = false }: CustomizeViewProps) 
 
             <Section
               num={4}
+              id="targeting"
+              title="Page Targeting"
+              subtitle="Control which pages of your website the widget appears on."
+              open={openSection === "targeting"}
+              onToggle={() => toggleSection("targeting")}
+            >
+              <PageTargetingForm config={config} setConfig={setConfig} />
+            </Section>
+
+            <Section
+              num={5}
               id="advanced"
               title="Advanced Settings"
               subtitle="Configure AI model, fallback, and more."
@@ -152,7 +174,7 @@ export default function CustomizeView({ embedded = false }: CustomizeViewProps) 
             </Section>
 
             <Section
-              num={5}
+              num={6}
               id="custom"
               title="Customization"
               subtitle="Add custom CSS or JavaScript to fine-tune the widget."
@@ -640,7 +662,121 @@ function AdvancedForm({ config, setConfig, field }: { config: any; setConfig: (c
   );
 }
 
-/* ───────────── 5. Customization (custom system prompt) ───────────── */
+/* ───────────── 4. Page Targeting ───────────── */
+
+function PageTargetingForm({ config, setConfig }: { config: any; setConfig: (c: any) => void }) {
+  const mode: "all" | "include" | "exclude" = config.url_targeting_mode || "all";
+  const patterns: string[] = Array.isArray(config.url_targeting_patterns)
+    ? config.url_targeting_patterns
+    : [];
+
+  function setMode(next: "all" | "include" | "exclude") {
+    setConfig({ ...config, url_targeting_mode: next });
+  }
+  function updatePattern(idx: number, value: string) {
+    const next = [...patterns];
+    next[idx] = value;
+    setConfig({ ...config, url_targeting_patterns: next });
+  }
+  function removePattern(idx: number) {
+    setConfig({
+      ...config,
+      url_targeting_patterns: patterns.filter((_, i) => i !== idx),
+    });
+  }
+  function addPattern() {
+    setConfig({ ...config, url_targeting_patterns: [...patterns, ""] });
+  }
+
+  const options: { val: "all" | "include" | "exclude"; label: string; sub: string }[] = [
+    { val: "all", label: "Show on all pages", sub: "Default — widget appears everywhere." },
+    { val: "include", label: "Show only on these pages", sub: "Widget appears only when the path matches a pattern below." },
+    { val: "exclude", label: "Hide on these pages", sub: "Widget is hidden when the path matches a pattern below." },
+  ];
+
+  return (
+    <div className="space-y-4 pt-4">
+      <div className="space-y-2">
+        {options.map((o) => (
+          <label
+            key={o.val}
+            className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+              mode === o.val
+                ? "border-violet-500 bg-violet-50"
+                : "border-gray-200 bg-white hover:border-gray-300"
+            }`}
+          >
+            <input
+              type="radio"
+              name="url_targeting_mode"
+              value={o.val}
+              checked={mode === o.val}
+              onChange={() => setMode(o.val)}
+              className="mt-0.5 accent-violet-600"
+            />
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-900">{o.label}</div>
+              <div className="text-[11px] text-gray-500">{o.sub}</div>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {mode !== "all" && (
+        <div className="border-t border-gray-100 pt-4">
+          <div className="flex items-center justify-between mb-2">
+            <FieldLabel>URL Patterns</FieldLabel>
+            <button
+              type="button"
+              onClick={addPattern}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-violet-600 hover:text-violet-700"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "14px" }}>add</span>
+              Add Pattern
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-500 mb-3">
+            Use <code className="px-1 bg-gray-100 rounded">*</code> as a wildcard. Examples:{" "}
+            <code className="px-1 bg-gray-100 rounded">/pricing</code>,{" "}
+            <code className="px-1 bg-gray-100 rounded">/docs/*</code>,{" "}
+            <code className="px-1 bg-gray-100 rounded">*/admin/*</code>.
+          </p>
+          <div className="space-y-2">
+            {patterns.length === 0 && (
+              <div className="text-center py-4 border border-dashed border-gray-200 rounded-lg">
+                <p className="text-[11px] text-gray-400">No patterns yet.</p>
+              </div>
+            )}
+            {patterns.map((p, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-1 bg-white border border-gray-200 rounded-lg pr-1 pl-2 hover:border-gray-300 transition-colors"
+              >
+                <input
+                  type="text"
+                  value={p}
+                  onChange={(e) => updatePattern(i, e.target.value)}
+                  placeholder="/pricing or /docs/*"
+                  className="flex-1 py-2 text-[12px] text-gray-800 outline-none bg-transparent font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => removePattern(i)}
+                  className="p-1 text-gray-300 hover:text-red-500 transition-colors"
+                  title="Remove"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: "16px" }}>close</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── 6. Customization (custom system prompt) ───────────── */
 
 function CustomForm({ config, field }: { config: any; field: (k: any) => any }) {
   return (

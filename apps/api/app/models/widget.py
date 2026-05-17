@@ -68,4 +68,14 @@ class WidgetConfig(Base):
     unique_selling_proposition: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
 
+    # URL-based widget targeting
+    # Mode: "all" (show everywhere, default), "include" (show only on matching pages),
+    # "exclude" (hide on matching pages)
+    url_targeting_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="all", server_default="'all'"
+    )
+    url_targeting_patterns: Mapped[list[str]] = mapped_column(
+        postgresql.ARRAY(Text), nullable=False, default=list, server_default="{}"
+    )
+
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="widget_config")

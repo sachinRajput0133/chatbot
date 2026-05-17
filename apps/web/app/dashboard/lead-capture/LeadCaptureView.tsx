@@ -94,6 +94,9 @@ export default function LeadCaptureView({ embedded = false }: LeadCaptureViewPro
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("form");
+  const [exportFrom, setExportFrom] = useState<string>("");
+  const [exportTo, setExportTo] = useState<string>("");
+  const [exporting, setExporting] = useState(false);
 
   // Ordered list of field IDs currently in the form
   const [fieldOrder, setFieldOrder] = useState<FieldId[]>(["name", "email", "phone", "company", "job_title"]);
@@ -205,6 +208,22 @@ export default function LeadCaptureView({ embedded = false }: LeadCaptureViewPro
     setDragOverIndex(null);
   }
 
+  async function handleExportCsv() {
+    setExporting(true);
+    setError(null);
+    try {
+      await api.downloadLeadCsv({
+        from: exportFrom || undefined,
+        to: exportTo || undefined,
+      });
+    } catch (err: any) {
+      setError(err?.message || "Failed to export leads CSV.");
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -310,6 +329,32 @@ export default function LeadCaptureView({ embedded = false }: LeadCaptureViewPro
           </div>
         ) : <div />}
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gray-200 bg-white">
+            <input
+              type="date"
+              value={exportFrom}
+              onChange={(e) => setExportFrom(e.target.value)}
+              className="text-xs text-gray-700 bg-transparent outline-none"
+              aria-label="Export from date"
+            />
+            <span className="text-xs text-gray-400">to</span>
+            <input
+              type="date"
+              value={exportTo}
+              onChange={(e) => setExportTo(e.target.value)}
+              className="text-xs text-gray-700 bg-transparent outline-none"
+              aria-label="Export to date"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={exporting}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-60"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
+            {exporting ? "Exporting..." : "Export CSV"}
+          </button>
           {!embedded && (
             <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>menu_book</span>

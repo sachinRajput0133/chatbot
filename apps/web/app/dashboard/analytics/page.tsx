@@ -3,15 +3,40 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
 
+interface UnansweredQuestion {
+  question: string;
+  count: number;
+  last_asked: string;
+  sample_conversation_id: string;
+}
+
+function formatRelative(iso: string): string {
+  const then = new Date(iso).getTime();
+  const diff = Date.now() - then;
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export default function AnalyticsPage() {
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
   const [me, setMe] = useState<any>(null);
+  const [unanswered, setUnanswered] = useState<UnansweredQuestion[] | null>(null);
 
   useEffect(() => {
     Promise.all([api.getAnalytics(), api.me()])
       .then(([s, m]) => { setStats(s); setMe(m); })
       .catch(() => router.push("/login"));
+    api.getUnansweredQuestions(30, 10)
+      .then((rows) => setUnanswered(rows))
+      .catch(() => setUnanswered([]));
   }, []);
 
   const LIMITS: Record<string, number> = { free: 100, starter: 1000, growth: 10000, enterprise: 999999 };
@@ -98,6 +123,50 @@ export default function AnalyticsPage() {
           </>
         ) : (
           <div className="text-sm text-gray-400">No ratings collected yet.</div>
+        )}
+      </div>
+
+      {/* Top Unanswered Questions */}
+      <div className="bg-white border rounded-xl p-5 mt-5">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-sm font-medium">Top Unanswered Questions</div>
+            <div className="text-xs text-gray-400">
+              Questions your bot couldn't answer well — last 30 days
+            </div>
+          </div>
+        </div>
+
+        {unanswered === null ? (
+          <div className="text-sm text-gray-400">Loading...</div>
+        ) : unanswered.length === 0 ? (
+          <div className="text-sm text-gray-500 py-4 text-center">
+            Your bot is answering everything! 🎉
+          </div>
+        ) : (
+          <ul className="divide-y">
+            {unanswered.slice(0, 10).map((q, i) => (
+              <li key={`${q.sample_conversation_id}-${i}`} className="py-3 flex items-start gap-3">
+                <span className="inline-flex items-center justify-center min-w-[2rem] h-7 px-2 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold">
+                  {q.count}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-gray-800 truncate" title={q.question}>
+                    {q.question}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    Last asked {formatRelative(q.last_asked)}
+                  </div>
+                </div>
+                <a
+                  href={`/dashboard/conversations?conversation_id=${q.sample_conversation_id}`}
+                  className="text-xs text-indigo-600 hover:underline whitespace-nowrap"
+                >
+                  View conversation
+                </a>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>

@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 
@@ -9,6 +9,7 @@ from app.core.rbac import require_permission
 from app.models.conversation import WebConversation, WebMessage
 from app.models.conversation_rating import ConversationRating
 from app.services import auth_service
+from app.services.chat_service import AI_FAILURE_FALLBACK
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
@@ -117,3 +118,109 @@ async def get_summary(
         csat_count=csat_count,
         csat_distribution=csat_distribution,
     )
+
+
+# Patterns that suggest the bot couldn't answer the visitor's question.
+UNANSWERED_PATTERNS = [
+    "i don't know",
+    "i'm not sure",
+    "i don't have",
+    "i do not have",
+    "i can't find",
+    "i cannot find",
+    "outside my knowledge",
+    "unable to find",
+    "don't have that information",
+    "do not have that information",
+    AI_FAILURE_FALLBACK.lower(),
+]
+
+
+class UnansweredQuestion(BaseModel):
+    question: str
+    count: int
+    last_asked: datetime
+    sample_conversation_id: str
+
+
+@router.get("/unanswered", response_model=list[UnansweredQuestion])
+async def get_unanswered(
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(20, ge=1, le=100),
+    user_id: str = Depends(require_permission("analytics", "view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Top visitor questions where the immediately-following bot reply
+    matched a "don't know" pattern. Grouped case-insensitively.
+    """
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    sql = text(
+        """
+        WITH ordered AS (
+            SELECT
+                m.id,
+                m.conversation_id,
+                m.role,
+                m.content,
+                m.created_at,
+                LEAD(m.role)       OVER (PARTITION BY m.conversation_id ORDER BY m.created_at, m.id) AS next_role,
+                LEAD(m.content)    OVER (PARTITION BY m.conversation_id ORDER BY m.created_at, m.id) AS next_content
+            FROM web_messages m
+            JOIN web_conversations c ON c.id = m.conversation_id
+            WHERE c.tenant_id = :tenant_id
+              AND m.created_at >= :since
+              AND COALESCE(m.is_internal, false) = false
+        ),
+        unanswered AS (
+            SELECT
+                TRIM(content) AS question,
+                LOWER(TRIM(content)) AS norm_q,
+                conversation_id,
+                created_at
+            FROM ordered
+            WHERE role = 'user'
+              AND next_role IN ('assistant', 'agent')
+              AND next_content IS NOT NULL
+              AND LOWER(next_content) ~* :pattern
+              AND LENGTH(TRIM(content)) > 0
+        )
+        SELECT
+            MIN(question) AS question,
+            COUNT(*)      AS cnt,
+            MAX(created_at) AS last_asked,
+            (ARRAY_AGG(conversation_id ORDER BY created_at DESC))[1] AS sample_conversation_id
+        FROM unanswered
+        GROUP BY norm_q
+        ORDER BY cnt DESC, last_asked DESC
+        LIMIT :limit
+        """
+    )
+
+    # Build a single regex alternation. Escape regex meta chars in each phrase.
+    import re as _re
+    pattern = "|".join(_re.escape(p) for p in UNANSWERED_PATTERNS)
+
+    result = await db.execute(
+        sql,
+        {
+            "tenant_id": str(tenant.id),
+            "since": since,
+            "pattern": pattern,
+            "limit": limit,
+        },
+    )
+
+    rows = result.fetchall()
+    return [
+        UnansweredQuestion(
+            question=row.question,
+            count=int(row.cnt),
+            last_asked=row.last_asked,
+            sample_conversation_id=str(row.sample_conversation_id),
+        )
+        for row in rows
+    ]

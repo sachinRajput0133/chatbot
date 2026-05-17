@@ -147,6 +147,14 @@ export const api = {
 
   getAnalytics: () => request<any>("/api/analytics/summary"),
 
+  getUnansweredQuestions: (days = 30, limit = 20) =>
+    request<{
+      question: string;
+      count: number;
+      last_asked: string;
+      sample_conversation_id: string;
+    }[]>(`/api/analytics/unanswered?days=${days}&limit=${limit}`),
+
   getConversationRating: (conversationId: string) =>
     request<{ id: string; conversation_id: string; rating: number; comment: string | null; created_at: string } | null>(
       `/api/conversations/${conversationId}/rating`
@@ -234,6 +242,29 @@ export const api = {
       `/api/conversations/${conversationId}/email-transcript`,
       { method: "POST", body: JSON.stringify({ to_email: toEmail }) },
     ),
+
+  downloadLeadCsv: async (opts?: { from?: string; to?: string }) => {
+    const token = getToken();
+    const params = new URLSearchParams();
+    if (opts?.from) params.set("from", opts.from);
+    if (opts?.to) params.set("to", opts.to);
+    const qs = params.toString();
+    const res = await fetch(
+      `${API_URL}/api/lead-capture/export.csv${qs ? `?${qs}` : ""}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!res.ok) throw new ApiError("Failed to download leads CSV", res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const today = new Date().toISOString().slice(0, 10);
+    a.download = `leads-${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
 };
 
 /** Save token to localStorage + Redux store (if available) */

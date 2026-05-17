@@ -9,3 +9,4 @@ export * from "./rolesApi";
 export * from "./usersApi";
 export * from "./membersApi";
 export * from "./auditApi";
+export * from "./cannedResponsesApi";

@@ -10,8 +10,10 @@ from app.models.goal import GoalConfig, GoalCompletion
 from app.models.api_key import ApiKey
 from app.models.audit_log import AuditLog
 from app.models.conversation_rating import ConversationRating
+from app.models.canned_response import CannedResponse
 
 __all__ = [
+    "CannedResponse",
     "ConversationRating",
     "Tenant", "Plan",
     "User", "UserRole",

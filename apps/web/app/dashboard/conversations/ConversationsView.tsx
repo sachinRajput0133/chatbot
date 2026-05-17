@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api/client";
+import { useListCannedResponsesQuery, type CannedResponseOut } from "@/lib/api";
 
 function timeAgo(dateStr: string): string {
   if (!dateStr) return "—";
@@ -74,6 +75,107 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
   const [agentInput, setAgentInput] = useState("");
   const [sendingAgent, setSendingAgent] = useState(false);
   const [composerMode, setComposerMode] = useState<"reply" | "note">("reply");
+
+  // ── Canned responses (quick-reply templates) ──
+  const { data: cannedResponses } = useListCannedResponsesQuery();
+  const [cannedOpen, setCannedOpen] = useState(false);
+  // When opened via slash-trigger, we track the "/xxx" query so we can replace it on insert.
+  // When opened via the bolt button, slashQuery is null (we just insert at cursor).
+  const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  const [cannedHighlight, setCannedHighlight] = useState(0);
+  const agentInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const filteredCanned = useMemo<CannedResponseOut[]>(() => {
+    const all = cannedResponses ?? [];
+    if (slashQuery === null) return all;
+    const q = slashQuery.toLowerCase();
+    if (!q) return all;
+    return all.filter(
+      (c) =>
+        c.shortcut.toLowerCase().includes(q) ||
+        c.title.toLowerCase().includes(q)
+    );
+  }, [cannedResponses, slashQuery]);
+
+  useEffect(() => {
+    // Keep highlight within range when the filter changes.
+    if (cannedHighlight >= filteredCanned.length) setCannedHighlight(0);
+  }, [filteredCanned.length, cannedHighlight]);
+
+  function insertCannedResponse(cr: CannedResponseOut) {
+    setAgentInput((prev) => {
+      if (slashQuery !== null) {
+        // Replace the trailing "/xxx" token with the content.
+        const idx = prev.lastIndexOf("/");
+        if (idx >= 0) return prev.slice(0, idx) + cr.content;
+        return cr.content;
+      }
+      // Bolt-button insertion → append (or insert at cursor end).
+      if (!prev) return cr.content;
+      const sep = prev.endsWith(" ") || prev.endsWith("\n") ? "" : " ";
+      return prev + sep + cr.content;
+    });
+    setCannedOpen(false);
+    setSlashQuery(null);
+    setCannedHighlight(0);
+    requestAnimationFrame(() => agentInputRef.current?.focus());
+  }
+
+  function onAgentInputChange(value: string) {
+    setAgentInput(value);
+    if (composerMode !== "reply") {
+      if (cannedOpen) setCannedOpen(false);
+      return;
+    }
+    // Detect a slash token at the start of the input or after whitespace.
+    const match = value.match(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/);
+    if (match) {
+      setSlashQuery(match[1] ?? "");
+      setCannedOpen(true);
+      setCannedHighlight(0);
+    } else if (slashQuery !== null) {
+      setCannedOpen(false);
+      setSlashQuery(null);
+    }
+  }
+
+  function onAgentInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (cannedOpen && filteredCanned.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setCannedHighlight((i) => (i + 1) % filteredCanned.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setCannedHighlight((i) => (i - 1 + filteredCanned.length) % filteredCanned.length);
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const sel = filteredCanned[cannedHighlight] ?? filteredCanned[0];
+        if (sel) insertCannedResponse(sel);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setCannedOpen(false);
+        setSlashQuery(null);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendAgent();
+    }
+  }
+
+  function openCannedViaButton() {
+    if (composerMode !== "reply") return;
+    setSlashQuery(null);
+    setCannedHighlight(0);
+    setCannedOpen((o) => !o);
+  }
   const [activeTab, setActiveTab] = useState<"conversation" | "timeline">("conversation");
 
   const [leftCollapsed, setLeftCollapsed] = useState(false);
@@ -785,24 +887,70 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                   </div>
                   <div className="relative group">
                     <textarea
+                      ref={agentInputRef}
                       value={agentInput}
-                      onChange={e => setAgentInput(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSendAgent())}
+                      onChange={e => onAgentInputChange(e.target.value)}
+                      onKeyDown={onAgentInputKeyDown}
                       placeholder={composerMode === "note"
                         ? "Leave a private note for other agents (not visible to the visitor)..."
-                        : "Type your reply as a human agent..."}
+                        : "Type your reply as a human agent... (type / for templates)"}
                       className={`w-full border rounded-[2rem] px-6 py-5 text-sm outline-none transition-all resize-none min-h-[64px] max-h-32 shadow-inner pr-24 ${
                         composerMode === "note"
                           ? "bg-amber-50 border-amber-200 focus:border-amber-400 focus:bg-amber-50/70 placeholder:text-amber-700/60"
                           : "bg-slate-50 border-slate-200 focus:border-violet-500 focus:bg-white"
                       }`}
                     />
+                    {cannedOpen && composerMode === "reply" && (
+                      <div className="absolute left-4 right-4 bottom-full mb-2 max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-2xl shadow-xl z-20">
+                        {filteredCanned.length === 0 && (
+                          <div className="px-4 py-3 text-sm text-slate-500">
+                            {(cannedResponses?.length ?? 0) === 0
+                              ? "No canned responses yet. Add one in Settings → Canned Responses."
+                              : "No matching templates."}
+                          </div>
+                        )}
+                        {filteredCanned.map((cr, idx) => (
+                          <button
+                            key={cr.id}
+                            type="button"
+                            onMouseEnter={() => setCannedHighlight(idx)}
+                            onClick={() => insertCannedResponse(cr)}
+                            className={`w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 transition-colors ${
+                              idx === cannedHighlight ? "bg-violet-50" : "hover:bg-slate-50"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <code className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-bold">
+                                /{cr.shortcut}
+                              </code>
+                              <span className="text-[13px] font-semibold text-slate-800 truncate">{cr.title}</span>
+                            </div>
+                            <div className="text-[12px] text-slate-500 mt-0.5 truncate">
+                              {cr.content.replace(/\s+/g, " ").slice(0, 120)}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="absolute left-6 bottom-4 flex items-center gap-1.5">
                       <button className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-full transition-all">
                         <span className="material-symbols-outlined" style={{ fontSize: 20 }}>attach_file</span>
                       </button>
                       <button className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-full transition-all">
                         <span className="material-symbols-outlined" style={{ fontSize: 20 }}>mood</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openCannedViaButton}
+                        disabled={composerMode !== "reply"}
+                        title="Insert canned response"
+                        className={`w-9 h-9 flex items-center justify-center rounded-full transition-all ${
+                          cannedOpen
+                            ? "text-violet-600 bg-violet-50"
+                            : "text-slate-400 hover:text-violet-600 hover:bg-violet-50"
+                        } disabled:opacity-40 disabled:cursor-not-allowed`}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 20 }}>bolt</span>
                       </button>
                       <button className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-full transition-all">
                         <span className="material-symbols-outlined" style={{ fontSize: 20 }}>description</span>

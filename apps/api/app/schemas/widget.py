@@ -42,6 +42,9 @@ class WidgetConfigOut(BaseModel):
     email_followup_enabled: bool = True
     email_followup_subject: str | None = None
     theme: str = "light"
+    # URL-based widget targeting
+    url_targeting_mode: str = "all"
+    url_targeting_patterns: list[str] = []
     # Lead capture (included so widget knows what form to show)
     lead_capture: LeadCaptureInfo = LeadCaptureInfo()
 
@@ -67,6 +70,9 @@ class WidgetConfigUpdate(BaseModel):
     email_followup_enabled: bool | None = None
     email_followup_subject: str | None = None
     theme: str | None = None
+    # URL-based widget targeting
+    url_targeting_mode: str | None = None
+    url_targeting_patterns: list[str] | None = None
     # Brand Voice
     company_website: str | None = None
     company_email: str | None = None
