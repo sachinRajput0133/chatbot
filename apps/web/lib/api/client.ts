@@ -86,7 +86,20 @@ export const api = {
   updateWidgetConfig: (data: any) =>
     request<any>("/api/widget/config", { method: "PUT", body: JSON.stringify(data) }),
 
-  listConversations: (page = 1) => request<any[]>(`/api/conversations/?page=${page}`),
+  listConversations: (page = 1, status?: string, assignedTo?: string) => {
+    const params = new URLSearchParams({ page: String(page) });
+    if (status) params.set("status", status);
+    if (assignedTo) params.set("assigned_to", assignedTo);
+    return request<any[]>(`/api/conversations/?${params.toString()}`);
+  },
+
+  listMembers: () => request<{ id: string; email: string }[]>("/api/members"),
+
+  assignConversation: (conversationId: string, userId: string | null) =>
+    request<any>(`/api/conversations/${conversationId}/assign`, {
+      method: "PATCH",
+      body: JSON.stringify({ user_id: userId }),
+    }),
 
   getConversation: (conversationId: string) =>
     request<any>(`/api/conversations/${conversationId}`),
@@ -102,6 +115,15 @@ export const api = {
       body: JSON.stringify({ mode }),
     }),
 
+  setConversationStatus: (
+    conversationId: string,
+    status: "open" | "pending" | "resolved" | "closed",
+  ) =>
+    request<any>(`/api/conversations/${conversationId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+
   sendAgentReply: (conversationId: string, message: string) =>
     request<any>(`/api/conversations/${conversationId}/agent-reply`, {
       method: "POST",
@@ -111,6 +133,12 @@ export const api = {
   markAsRead: (conversationId: string) =>
     request<void>(`/api/conversations/${conversationId}/read`, { method: "POST" }),
 
+  sendInternalNote: (conversationId: string, content: string) =>
+    request<any>(`/api/conversations/${conversationId}/messages/note`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    }),
+
   updateConversationTags: (conversationId: string, tags: string[]) =>
     request<any>(`/api/conversations/${conversationId}/tags`, {
       method: "PUT",
@@ -118,6 +146,11 @@ export const api = {
     }),
 
   getAnalytics: () => request<any>("/api/analytics/summary"),
+
+  getConversationRating: (conversationId: string) =>
+    request<{ id: string; conversation_id: string; rating: number; comment: string | null; created_at: string } | null>(
+      `/api/conversations/${conversationId}/rating`
+    ),
 
   createCheckout: (plan: string) =>
     request<{
@@ -175,6 +208,32 @@ export const api = {
     }),
   deleteApiKey: (keyId: string) =>
     request<{ status: string }>(`/api/api-keys/${keyId}`, { method: "DELETE" }),
+
+  conversationExportUrl: (conversationId: string, format: "csv" | "pdf") =>
+    `${API_URL}/api/conversations/${conversationId}/export.${format}`,
+
+  downloadConversationExport: async (conversationId: string, format: "csv" | "pdf") => {
+    const token = getToken();
+    const res = await fetch(`${API_URL}/api/conversations/${conversationId}/export.${format}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new ApiError("Failed to download transcript", res.status);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `conversation-${conversationId}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  },
+
+  emailConversationTranscript: (conversationId: string, toEmail: string) =>
+    request<{ status: string; to_email: string }>(
+      `/api/conversations/${conversationId}/email-transcript`,
+      { method: "POST", body: JSON.stringify({ to_email: toEmail }) },
+    ),
 };
 
 /** Save token to localStorage + Redux store (if available) */

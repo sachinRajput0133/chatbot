@@ -7,3 +7,5 @@ export * from "./billingApi";
 export * from "./integrationsApi";
 export * from "./rolesApi";
 export * from "./usersApi";
+export * from "./membersApi";
+export * from "./auditApi";

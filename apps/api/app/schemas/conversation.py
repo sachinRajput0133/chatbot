@@ -9,6 +9,7 @@ class MessageOut(BaseModel):
     role: MessageRole
     content: str
     created_at: datetime
+    is_internal: bool = False
 
     class Config:
         from_attributes = True
@@ -39,13 +40,24 @@ class ConversationOut(BaseModel):
     visitor_address: str | None = None
     external_user_id: str | None = None
     mode: str = "ai"   # 'ai' | 'human'
+    status: str = "open"   # 'open' | 'pending' | 'resolved' | 'closed'
+    resolved_at: datetime | None = None
+    resolved_by_user_id: uuid.UUID | None = None
     last_read_at: datetime | None = None
     is_unread: bool = False
     unread_count: int = 0
     tags: list[str] = []
+    assigned_user_id: uuid.UUID | None = None
+    assigned_user_email: str | None = None
+    assigned_at: datetime | None = None
 
     class Config:
         from_attributes = True
+
+
+class AssignConversationIn(BaseModel):
+    """Payload for assigning a conversation to a tenant member (or clearing)."""
+    user_id: str | None = None
 
 
 class UpdateTagsIn(BaseModel):
@@ -58,7 +70,17 @@ class AgentReplyIn(BaseModel):
     message: str
 
 
+class InternalNoteIn(BaseModel):
+    """Payload for an agent-only internal note (never shown to visitors)."""
+    content: str
+
+
 class SetModeIn(BaseModel):
     """Payload for toggling a conversation between AI and human mode."""
     mode: str  # 'ai' | 'human'
+
+
+class SetStatusIn(BaseModel):
+    """Payload for transitioning conversation status."""
+    status: str  # 'open' | 'pending' | 'resolved' | 'closed'
 

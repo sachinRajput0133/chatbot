@@ -117,7 +117,10 @@ async def get_chat_history(
 
     result = await db.execute(
         select(WebMessage)
-        .where(WebMessage.conversation_id == conv.id)
+        .where(
+            WebMessage.conversation_id == conv.id,
+            WebMessage.is_internal == False,  # noqa: E712 — never expose internal agent notes to the visitor
+        )
         .order_by(WebMessage.created_at)
     )
     messages = result.scalars().all()
@@ -182,14 +185,14 @@ async def get_visitor_conversations(
     for conv in conversations:
         # Get first message to use as title
         first_msg_res = await db.execute(
-            select(WebMessage).where(WebMessage.conversation_id == conv.id).order_by(WebMessage.created_at.asc()).limit(1)
+            select(WebMessage).where(WebMessage.conversation_id == conv.id, WebMessage.is_internal == False).order_by(WebMessage.created_at.asc()).limit(1)  # noqa: E712
         )
         first_msg = first_msg_res.scalar_one_or_none()
         title = first_msg.content[:40] + "..." if first_msg and len(first_msg.content) > 40 else (first_msg.content if first_msg else "Chat with AI Agent")
 
         # Get latest message
         last_msg_res = await db.execute(
-            select(WebMessage).where(WebMessage.conversation_id == conv.id).order_by(WebMessage.created_at.desc()).limit(1)
+            select(WebMessage).where(WebMessage.conversation_id == conv.id, WebMessage.is_internal == False).order_by(WebMessage.created_at.desc()).limit(1)  # noqa: E712
         )
         last_msg = last_msg_res.scalar_one_or_none()
         summary = last_msg.content[:60] + "..." if last_msg and len(last_msg.content) > 60 else (last_msg.content if last_msg else "")

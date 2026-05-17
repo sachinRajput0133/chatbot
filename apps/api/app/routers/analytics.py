@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from app.core.database import get_db
 from app.core.rbac import require_permission
 from app.models.conversation import WebConversation, WebMessage
+from app.models.conversation_rating import ConversationRating
 from app.services import auth_service
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
@@ -23,6 +24,9 @@ class AnalyticsSummary(BaseModel):
     messages_this_month: int
     avg_messages_per_conversation: float
     performance_trends: list[TrendDataPoint]
+    avg_csat: float | None
+    csat_count: int
+    csat_distribution: dict[str, int]
 
 
 @router.get("/summary", response_model=AnalyticsSummary)
@@ -82,10 +86,34 @@ async def get_summary(
             messages=trend_dict.get(day_str, 0)
         ))
 
+    # CSAT aggregates
+    csat_row = (
+        await db.execute(
+            select(
+                func.avg(ConversationRating.rating),
+                func.count(ConversationRating.id),
+            ).where(ConversationRating.tenant_id == tenant.id)
+        )
+    ).one()
+    avg_csat_val: float | None = float(csat_row[0]) if csat_row[0] is not None else None
+    csat_count = int(csat_row[1] or 0)
+
+    dist_rows = await db.execute(
+        select(ConversationRating.rating, func.count(ConversationRating.id))
+        .where(ConversationRating.tenant_id == tenant.id)
+        .group_by(ConversationRating.rating)
+    )
+    csat_distribution = {str(i): 0 for i in range(1, 6)}
+    for star, cnt in dist_rows.all():
+        csat_distribution[str(int(star))] = int(cnt)
+
     return AnalyticsSummary(
         total_conversations=total_convs,
         total_messages=total_msgs,
         messages_this_month=msgs_this_month,
         avg_messages_per_conversation=round(avg, 2),
-        performance_trends=trends
+        performance_trends=trends,
+        avg_csat=round(avg_csat_val, 2) if avg_csat_val is not None else None,
+        csat_count=csat_count,
+        csat_distribution=csat_distribution,
     )

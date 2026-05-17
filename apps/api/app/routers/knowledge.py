@@ -1,11 +1,11 @@
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.rbac import require_permission
 from app.schemas.knowledge import DocumentOut, ManualKnowledgeRequest, ManualKnowledgeUpdate, DocumentContentOut, FAQRequest, CrawlRequest
-from app.services import knowledge_service, auth_service
+from app.services import knowledge_service, auth_service, audit_service
 from app.workers.embedding_worker import _process_document_async
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -125,8 +125,19 @@ async def crawl_url(
 @router.delete("/{doc_id}", status_code=204)
 async def delete_document(
     doc_id: uuid.UUID,
+    request: Request,
     user_id: str = Depends(require_permission("knowledge", "delete")),
     db: AsyncSession = Depends(get_db),
 ):
     tenant = await _get_tenant(user_id, db)
     await knowledge_service.delete_document(doc_id, tenant.id, db)
+    await audit_service.log(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=user_id,
+        action="knowledge.delete",
+        target_type="knowledge_document",
+        target_id=str(doc_id),
+        request=request,
+    )
+    await db.commit()

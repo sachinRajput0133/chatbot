@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 FRONTEND_URL = settings.FRONTEND_URL
 
 
-def _send(*, to: str, subject: str, html: str, cc: list[str] | None = None) -> None:
+def _send(*, to: str, subject: str, html: str, cc: list[str] | None = None, attachments: list[dict] | None = None) -> None:
     """Send an email. Silently logs on failure so it never breaks the caller."""
     if not settings.RESEND_API_KEY or settings.RESEND_API_KEY.startswith("re_..."):
         logger.info(f"[Email] RESEND_API_KEY not set — skipping email to {to}: {subject}")
@@ -27,6 +27,8 @@ def _send(*, to: str, subject: str, html: str, cc: list[str] | None = None) -> N
         }
         if cc:
             payload["cc"] = cc
+        if attachments:
+            payload["attachments"] = attachments
         resend.Emails.send(payload)
         logger.info(f"[Email] Sent '{subject}' to {to}" + (f" (cc={len(cc)})" if cc else ""))
     except Exception as e:
@@ -457,6 +459,35 @@ def send_keyword_alert_email(
         subject=f"🔔 ChatBot AI — Keyword alert: {matched_keywords}",
         html=_base(content),
         cc=cc,
+    )
+
+
+def send_transcript(to_email: str, pdf_bytes: bytes, conversation_id: str) -> None:
+    """Email a conversation transcript PDF to a visitor or agent.
+
+    No-ops silently when RESEND_API_KEY is not configured (matches existing pattern).
+    """
+    import base64
+
+    content = f"""
+<h2>Conversation transcript</h2>
+<p>Please find attached a PDF transcript of conversation
+<code style="background:#f3f4f6;padding:2px 8px;border-radius:4px;font-size:13px;">{conversation_id}</code>.</p>
+<p style="color:#6b7280;font-size:14px;margin-top:24px;">
+  If you didn't request this, you can safely ignore this email.
+</p>
+"""
+    attachments = [
+        {
+            "filename": f"conversation-{conversation_id}.pdf",
+            "content": base64.b64encode(pdf_bytes).decode("ascii"),
+        }
+    ]
+    _send(
+        to=to_email,
+        subject="Your conversation transcript",
+        html=_base(content),
+        attachments=attachments,
     )
 
 

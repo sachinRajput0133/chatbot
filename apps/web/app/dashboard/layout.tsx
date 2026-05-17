@@ -61,6 +61,8 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/dashboard/billing", label: "Billing", icon: "payments", module: "billing", action: "view" },
       { href: "/dashboard/members", label: "Members", icon: "group", ownerOnly: true },
       { href: "/dashboard/roles", label: "Roles & Permissions", icon: "shield_person", ownerOnly: true },
+      { href: "/dashboard/gdpr", label: "Data Privacy", icon: "shield_lock", ownerOnly: true },
+      { href: "/dashboard/audit", label: "Audit Log", icon: "history", ownerOnly: true },
       { href: "/dashboard/profile", label: "Settings", icon: "settings" },
     ],
   },

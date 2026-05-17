@@ -451,6 +451,42 @@ const i18n: Record<string, Record<string, string>> = {
         #cb-panel.cb-hidden {
           transform: translateY(100%);
         }
+        #cb-rating-overlay {
+          position: absolute; inset: 0; background: rgba(255,255,255,0.97);
+          display: none; flex-direction: column; align-items: stretch;
+          justify-content: center; padding: 24px; z-index: 10;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        #cb-rating-overlay.cb-active { display: flex; }
+        #cb-rating-overlay h3 { margin: 0 0 6px; font-size: 16px; font-weight: 700; color: #111827; text-align: center; }
+        #cb-rating-overlay p { margin: 0 0 16px; font-size: 13px; color: #6b7280; text-align: center; }
+        #cb-rating-stars { display: flex; justify-content: center; gap: 6px; margin-bottom: 14px; }
+        #cb-rating-stars button {
+          background: transparent; border: none; cursor: pointer;
+          font-size: 32px; line-height: 1; color: #d1d5db; padding: 4px; transition: transform 0.1s;
+        }
+        #cb-rating-stars button:hover { transform: scale(1.15); }
+        #cb-rating-stars button.cb-star-on { color: #f59e0b; }
+        #cb-rating-comment {
+          width: 100%; box-sizing: border-box; min-height: 70px; resize: vertical;
+          padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 8px;
+          font-size: 13px; font-family: inherit; margin-bottom: 12px;
+        }
+        #cb-rating-actions { display: flex; gap: 8px; }
+        #cb-rating-actions button {
+          flex: 1; padding: 10px 14px; border-radius: 8px; font-size: 13px;
+          font-weight: 600; cursor: pointer; border: 1px solid transparent;
+        }
+        #cb-rating-skip { background: white; border-color: #e5e7eb !important; color: #6b7280; }
+        #cb-rating-submit { background: var(--cb-color, #6366f1); color: white; }
+        #cb-rating-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+        #cb-rating-thanks { text-align: center; font-size: 14px; color: #059669; padding: 16px 0; display: none; }
+        #cb-rating-overlay.cb-done #cb-rating-stars,
+        #cb-rating-overlay.cb-done #cb-rating-comment,
+        #cb-rating-overlay.cb-done #cb-rating-actions,
+        #cb-rating-overlay.cb-done h3,
+        #cb-rating-overlay.cb-done p { display: none; }
+        #cb-rating-overlay.cb-done #cb-rating-thanks { display: block; }
         #cb-bubble.cb-hidden-mobile {
           display: none !important;
         }
@@ -587,6 +623,23 @@ const i18n: Record<string, Record<string, string>> = {
           </div>
         </div>
         <div id="cb-messages"></div>
+        <div id="cb-rating-overlay">
+          <h3>How was your chat?</h3>
+          <p>Your feedback helps us improve.</p>
+          <div id="cb-rating-stars" role="radiogroup" aria-label="Rate from 1 to 5 stars">
+            <button type="button" data-star="1" aria-label="1 star">★</button>
+            <button type="button" data-star="2" aria-label="2 stars">★</button>
+            <button type="button" data-star="3" aria-label="3 stars">★</button>
+            <button type="button" data-star="4" aria-label="4 stars">★</button>
+            <button type="button" data-star="5" aria-label="5 stars">★</button>
+          </div>
+          <textarea id="cb-rating-comment" placeholder="Optional comment..." maxlength="2000"></textarea>
+          <div id="cb-rating-actions">
+            <button type="button" id="cb-rating-skip">Skip</button>
+            <button type="button" id="cb-rating-submit" disabled>Submit</button>
+          </div>
+          <div id="cb-rating-thanks">Thanks for your feedback! 🙏</div>
+        </div>
         <div id="cb-powered">
           <a href="#" target="_blank">${t("powered_by")}</a>
         </div>
@@ -664,8 +717,83 @@ const i18n: Record<string, Record<string, string>> = {
     }
 
     document.getElementById("cb-mi-new")!.addEventListener("click", () => { resetToNewChat(); historyView.classList.remove("cb-active"); });
-    document.getElementById("cb-mi-end")!.addEventListener("click", () => { resetToNewChat(); historyView.classList.remove("cb-active"); });
+    document.getElementById("cb-mi-end")!.addEventListener("click", () => {
+      menu.classList.remove("cb-open");
+      // If there's an active conversation, prompt the visitor to rate before resetting.
+      // TODO: alternative trigger — listen for a server "show_rating" message type
+      // pushed when an agent marks the conversation as resolved.
+      if (conversationId) {
+        openRatingOverlay(conversationId, () => { resetToNewChat(); historyView.classList.remove("cb-active"); });
+      } else {
+        resetToNewChat();
+        historyView.classList.remove("cb-active");
+      }
+    });
     document.getElementById("cb-hi-new")!.addEventListener("click", () => { resetToNewChat(); historyView.classList.remove("cb-active"); });
+
+    // ── CSAT rating overlay ──
+    const ratingOverlay = document.getElementById("cb-rating-overlay")!;
+    const ratingStarsRow = document.getElementById("cb-rating-stars")!;
+    const ratingCommentEl = document.getElementById("cb-rating-comment") as HTMLTextAreaElement;
+    const ratingSubmitBtn = document.getElementById("cb-rating-submit") as HTMLButtonElement;
+    const ratingSkipBtn = document.getElementById("cb-rating-skip") as HTMLButtonElement;
+    let currentStars = 0;
+    let ratingConvId: string | null = null;
+    let onRatingClose: (() => void) | null = null;
+
+    function paintStars(n: number) {
+      ratingStarsRow.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
+        const idx = Number(btn.getAttribute("data-star"));
+        btn.classList.toggle("cb-star-on", idx <= n);
+      });
+    }
+
+    ratingStarsRow.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentStars = Number(btn.getAttribute("data-star"));
+        paintStars(currentStars);
+        ratingSubmitBtn.disabled = currentStars < 1;
+      });
+    });
+
+    function closeRatingOverlay() {
+      ratingOverlay.classList.remove("cb-active");
+      ratingOverlay.classList.remove("cb-done");
+      currentStars = 0;
+      ratingConvId = null;
+      ratingCommentEl.value = "";
+      paintStars(0);
+      ratingSubmitBtn.disabled = true;
+      ratingSubmitBtn.textContent = "Submit";
+      const cb = onRatingClose; onRatingClose = null;
+      if (cb) cb();
+    }
+
+    function openRatingOverlay(convId: string, onClose: () => void) {
+      ratingConvId = convId;
+      onRatingClose = onClose;
+      ratingOverlay.classList.add("cb-active");
+    }
+
+    ratingSkipBtn.addEventListener("click", () => { closeRatingOverlay(); });
+
+    ratingSubmitBtn.addEventListener("click", async () => {
+      if (!ratingConvId || currentStars < 1) return;
+      ratingSubmitBtn.disabled = true;
+      ratingSubmitBtn.textContent = "Saving...";
+      try {
+        await fetch(`${API_URL}/api/widget/conversations/${ratingConvId}/rating`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rating: currentStars,
+            comment: ratingCommentEl.value.trim() || null,
+          }),
+        });
+      } catch (_) { /* swallow — visitor UX should not break on rating failure */ }
+      ratingOverlay.classList.add("cb-done");
+      setTimeout(() => { closeRatingOverlay(); }, 1500);
+    });
     
     document.getElementById("cb-hi-back")!.addEventListener("click", () => historyView.classList.remove("cb-active"));
 

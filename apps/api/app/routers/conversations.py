@@ -1,13 +1,22 @@
+import csv
+import io
 import uuid
-from fastapi import APIRouter, Depends, Query, BackgroundTasks
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, Query, BackgroundTasks, HTTPException
+from fastapi.responses import StreamingResponse, Response
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 
 from app.core.database import get_db
 from app.core.rbac import require_permission
 from app.models.conversation import WebConversation, WebMessage, MessageRole
-from app.schemas.conversation import ConversationOut, MessageOut, MessagesPage, SetModeIn, AgentReplyIn, UpdateTagsIn
+from app.models.user import User
+from app.schemas.conversation import ConversationOut, MessageOut, MessagesPage, SetModeIn, SetStatusIn, AgentReplyIn, UpdateTagsIn, InternalNoteIn, AssignConversationIn
+
+ALLOWED_STATUSES = {"open", "pending", "resolved", "closed"}
 from app.services import auth_service
+from app.services import email_service
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -16,20 +25,69 @@ router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 async def list_conversations(
     page: int = Query(1, ge=1),
     limit: int = Query(20, le=100),
+    status: str | None = Query(
+        None,
+        description="Comma-separated status filter (open,pending,resolved,closed). "
+                    "Omit to return all statuses.",
+    ),
+    assigned_to: str | None = Query(
+        None,
+        description="Filter by assignee. Accepts 'me', 'unassigned', or a user UUID.",
+    ),
     user_id: str = Depends(require_permission("conversations", "view")),
     db: AsyncSession = Depends(get_db),
 ):
     _, tenant = await auth_service.get_user_with_tenant(user_id, db)
     offset = (page - 1) * limit
 
-    result = await db.execute(
+    stmt = (
         select(WebConversation)
         .where(WebConversation.tenant_id == tenant.id)
-        .order_by(WebConversation.last_message_at.desc())
-        .offset(offset)
-        .limit(limit)
+    )
+    if status:
+        wanted = {s.strip() for s in status.split(",") if s.strip()}
+        invalid = wanted - ALLOWED_STATUSES
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"Invalid status values: {sorted(invalid)}")
+        if wanted:
+            stmt = stmt.where(WebConversation.status.in_(wanted))
+
+    if assigned_to:
+        if assigned_to == "unassigned":
+            stmt = stmt.where(WebConversation.assigned_user_id.is_(None))
+        elif assigned_to == "me":
+            try:
+                stmt = stmt.where(WebConversation.assigned_user_id == uuid.UUID(user_id))
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Invalid current user id")
+        else:
+            try:
+                target_uuid = uuid.UUID(assigned_to)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="assigned_to must be 'me', 'unassigned', or a valid UUID")
+            # Validate target is in tenant
+            target_res = await db.execute(
+                select(User.id).where(User.id == target_uuid, User.tenant_id == tenant.id)
+            )
+            if not target_res.scalar_one_or_none():
+                raise HTTPException(status_code=404, detail="Assignee not found in tenant")
+            stmt = stmt.where(WebConversation.assigned_user_id == target_uuid)
+
+    result = await db.execute(
+        stmt.order_by(WebConversation.last_message_at.desc())
+            .offset(offset)
+            .limit(limit)
     )
     conversations = result.scalars().all()
+
+    # Preload assigned user emails in one query
+    assignee_ids = {c.assigned_user_id for c in conversations if c.assigned_user_id}
+    assignee_email_map: dict[uuid.UUID, str] = {}
+    if assignee_ids:
+        a_res = await db.execute(
+            select(User.id, User.email).where(User.id.in_(assignee_ids))
+        )
+        assignee_email_map = {row[0]: row[1] for row in a_res.all()}
 
     out = []
     for conv in conversations:
@@ -60,9 +118,15 @@ async def list_conversations(
             visitor_address=conv.visitor_address,
             external_user_id=conv.external_user_id,
             mode=conv.mode,
+            status=conv.status,
+            resolved_at=conv.resolved_at,
+            resolved_by_user_id=conv.resolved_by_user_id,
             last_read_at=conv.last_read_at,
             is_unread=unread_count > 0,
-            tags=conv.tags
+            tags=conv.tags,
+            assigned_user_id=conv.assigned_user_id,
+            assigned_user_email=assignee_email_map.get(conv.assigned_user_id) if conv.assigned_user_id else None,
+            assigned_at=conv.assigned_at,
         ))
     return out
 
@@ -116,6 +180,13 @@ async def get_conversation(
     unread_result = await db.execute(unread_q)
     unread_count = unread_result.scalar() or 0
 
+    assigned_email: str | None = None
+    if conv.assigned_user_id:
+        a_res = await db.execute(
+            select(User.email).where(User.id == conv.assigned_user_id)
+        )
+        assigned_email = a_res.scalar_one_or_none()
+
     return ConversationOut(
         id=conv.id,
         visitor_id=conv.visitor_id,
@@ -130,9 +201,15 @@ async def get_conversation(
         visitor_address=conv.visitor_address,
         external_user_id=conv.external_user_id,
         mode=conv.mode,
+        status=conv.status,
+        resolved_at=conv.resolved_at,
+        resolved_by_user_id=conv.resolved_by_user_id,
         last_read_at=conv.last_read_at,
         is_unread=unread_count > 0,
-        tags=conv.tags
+        tags=conv.tags,
+        assigned_user_id=conv.assigned_user_id,
+        assigned_user_email=assigned_email,
+        assigned_at=conv.assigned_at,
     )
 
 
@@ -211,6 +288,58 @@ async def get_messages(
     )
 
 
+@router.patch("/{conversation_id}/assign", response_model=ConversationOut)
+async def assign_conversation(
+    conversation_id: uuid.UUID,
+    payload: AssignConversationIn,
+    user_id: str = Depends(require_permission("conversations", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign a conversation to a tenant member (or clear assignment when user_id is null)."""
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    result = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
+            WebConversation.tenant_id == tenant.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    assigned_email: str | None = None
+    if payload.user_id is None:
+        conv.assigned_user_id = None
+        conv.assigned_at = None
+    else:
+        try:
+            target_uuid = uuid.UUID(payload.user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="user_id must be a valid UUID or null")
+        # Validate target is in same tenant
+        target_res = await db.execute(
+            select(User).where(User.id == target_uuid, User.tenant_id == tenant.id)
+        )
+        target_user = target_res.scalar_one_or_none()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Target user not found in tenant")
+        if not target_user.is_active:
+            raise HTTPException(status_code=400, detail="Target user is inactive")
+        conv.assigned_user_id = target_user.id
+        conv.assigned_at = datetime.now(timezone.utc)
+        assigned_email = target_user.email
+
+    await db.commit()
+    await db.refresh(conv)
+
+    count_result = await db.execute(select(func.count()).where(WebMessage.conversation_id == conv.id))
+    msg_count = count_result.scalar() or 0
+    out = ConversationOut.model_validate(conv)
+    out.message_count = msg_count
+    out.assigned_user_email = assigned_email
+    return out
+
+
 @router.patch("/{conversation_id}/mode", response_model=ConversationOut)
 async def set_conversation_mode(
     conversation_id: uuid.UUID,
@@ -238,7 +367,60 @@ async def set_conversation_mode(
     conv.mode = payload.mode
     await db.commit()
     await db.refresh(conv)
-    
+
+    count_result = await db.execute(select(func.count()).where(WebMessage.conversation_id == conv.id))
+    msg_count = count_result.scalar() or 0
+    out = ConversationOut.model_validate(conv)
+    out.message_count = msg_count
+    return out
+
+
+@router.patch("/{conversation_id}/status", response_model=ConversationOut)
+async def set_conversation_status(
+    conversation_id: uuid.UUID,
+    payload: SetStatusIn,
+    user_id: str = Depends(require_permission("conversations", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Transition a conversation's lifecycle status.
+
+    Valid statuses: open, pending, resolved, closed.
+    On transition to "resolved", `resolved_at` and `resolved_by_user_id` are
+    stamped with the current time and acting user.
+    """
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    result = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
+            WebConversation.tenant_id == tenant.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    new_status = (payload.status or "").strip().lower()
+    if new_status not in ALLOWED_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Status must be one of {sorted(ALLOWED_STATUSES)}",
+        )
+
+    conv.status = new_status
+    if new_status == "resolved":
+        conv.resolved_at = datetime.now(timezone.utc)
+        try:
+            conv.resolved_by_user_id = uuid.UUID(user_id)
+        except (ValueError, TypeError):
+            conv.resolved_by_user_id = None
+    elif new_status == "open":
+        # Reopening clears the resolution stamp
+        conv.resolved_at = None
+        conv.resolved_by_user_id = None
+
+    await db.commit()
+    await db.refresh(conv)
+
     count_result = await db.execute(select(func.count()).where(WebMessage.conversation_id == conv.id))
     msg_count = count_result.scalar() or 0
     out = ConversationOut.model_validate(conv)
@@ -305,6 +487,63 @@ async def agent_reply(
     return msg
 
 
+@router.post("/{conversation_id}/messages/note", response_model=MessageOut)
+async def create_internal_note(
+    conversation_id: uuid.UUID,
+    payload: InternalNoteIn,
+    user_id: str = Depends(require_permission("conversations", "edit")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create an agent-only internal note attached to a conversation.
+
+    Internal notes are never returned to visitor-facing endpoints — they exist
+    purely for handoff context between human agents.
+    """
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    result = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
+            WebConversation.tenant_id == tenant.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    content = (payload.content or "").strip()
+    if not content:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Note content cannot be empty")
+
+    msg = WebMessage(
+        conversation_id=conv.id,
+        role=MessageRole.agent,
+        content=content,
+        is_internal=True,
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+
+    # Broadcast to dashboard only (NOT to the public widget channel) so other
+    # agents viewing the conversation see the note in real-time.
+    from app.core.redis import publish_to_tenant
+    await publish_to_tenant(str(tenant.id), {
+        "type": "new_message",
+        "conversation_id": str(conv.id),
+        "message": {
+            "id": str(msg.id),
+            "role": "agent",
+            "content": msg.content,
+            "is_internal": True,
+            "created_at": msg.created_at.isoformat(),
+        },
+    })
+
+    return msg
+
+
 @router.post("/{conversation_id}/read", status_code=204)
 async def mark_as_read(
     conversation_id: uuid.UUID,
@@ -351,12 +590,228 @@ async def update_conversation_tags(
     conv.tags = payload.tags
     await db.commit()
     await db.refresh(conv)
-    
+
     # We need to return ConversationOut with counts
     count_result = await db.execute(select(func.count()).where(WebMessage.conversation_id == conv.id))
     msg_count = count_result.scalar() or 0
-    
+
     out = ConversationOut.model_validate(conv)
     out.message_count = msg_count
     return out
+
+
+# ── Transcript export ────────────────────────────────────────────────────────
+
+class EmailTranscriptIn(BaseModel):
+    to_email: EmailStr
+
+
+async def _can_view_internal(user_id: str, db: AsyncSession) -> bool:
+    """Owners or members with conversations:view_internal/edit can include internal notes."""
+    from app.models.user import User, UserRole
+    from app.models.role import Role
+    from sqlalchemy.orm import selectinload
+
+    try:
+        uid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        return False
+    res = await db.execute(
+        select(User)
+        .where(User.id == uid)
+        .options(selectinload(User.role_obj).selectinload(Role.permissions))
+    )
+    user = res.scalar_one_or_none()
+    if not user:
+        return False
+    if user.role == UserRole.owner:
+        return True
+    if user.role_obj is None:
+        return False
+    return any(
+        p.module == "conversations" and p.action in ("view_internal", "edit")
+        for p in user.role_obj.permissions
+    )
+
+
+async def _load_export_data(
+    conversation_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    db: AsyncSession,
+    include_internal: bool,
+) -> tuple[WebConversation, list[WebMessage]]:
+    res = await db.execute(
+        select(WebConversation).where(
+            WebConversation.id == conversation_id,
+            WebConversation.tenant_id == tenant_id,
+        )
+    )
+    conv = res.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    msg_q = (
+        select(WebMessage)
+        .where(WebMessage.conversation_id == conv.id)
+        .order_by(WebMessage.created_at.asc())
+    )
+    if not include_internal:
+        msg_q = msg_q.where(WebMessage.is_internal == False)  # noqa: E712
+    msg_res = await db.execute(msg_q)
+    msgs = list(msg_res.scalars().all())
+    return conv, msgs
+
+
+def _sender_label(msg: WebMessage) -> str:
+    if msg.role == MessageRole.user:
+        return "Visitor"
+    if msg.role == MessageRole.assistant:
+        return "AI"
+    return "Agent"
+
+
+def _build_csv(conv: WebConversation, msgs: list[WebMessage]) -> io.StringIO:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["timestamp", "sender", "content", "is_internal"])
+    for m in msgs:
+        ts = m.created_at.isoformat() if m.created_at else ""
+        writer.writerow([ts, _sender_label(m), m.content or "", "true" if m.is_internal else "false"])
+    buf.seek(0)
+    return buf
+
+
+def _build_pdf(conv: WebConversation, msgs: list[WebMessage]) -> bytes:
+    """Generate a simple PDF transcript using reportlab."""
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=LETTER,
+        leftMargin=0.6 * inch,
+        rightMargin=0.6 * inch,
+        topMargin=0.6 * inch,
+        bottomMargin=0.6 * inch,
+        title=f"Conversation {conv.id}",
+    )
+    styles = getSampleStyleSheet()
+    h_style = styles["Heading1"]
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"], textColor=colors.grey, fontSize=9)
+    label_style = ParagraphStyle(
+        "label", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#6366f1"), spaceAfter=2
+    )
+    body_style = ParagraphStyle("body", parent=styles["Normal"], fontSize=10, leading=14)
+    internal_style = ParagraphStyle("internal", parent=body_style, textColor=colors.HexColor("#92400e"))
+
+    story: list = []
+    story.append(Paragraph("Conversation transcript", h_style))
+
+    visitor = conv.visitor_name or conv.visitor_email or f"Visitor {str(conv.visitor_id)[:8]}"
+    started = conv.started_at.strftime("%Y-%m-%d %H:%M UTC") if conv.started_at else "—"
+    last = conv.last_message_at.strftime("%Y-%m-%d %H:%M UTC") if conv.last_message_at else "—"
+    for line in [
+        f"Visitor: {visitor}",
+        f"Conversation ID: {conv.id}",
+        f"Started: {started}",
+        f"Last message: {last}",
+        f"Messages: {len(msgs)}",
+    ]:
+        story.append(Paragraph(line, sub_style))
+    story.append(Spacer(1, 0.25 * inch))
+
+    if not msgs:
+        story.append(Paragraph("(no messages)", body_style))
+    else:
+        for m in msgs:
+            ts = m.created_at.strftime("%Y-%m-%d %H:%M:%S") if m.created_at else ""
+            sender = _sender_label(m)
+            tag = " [INTERNAL]" if m.is_internal else ""
+            story.append(Paragraph(
+                f"<b>{sender}</b>{tag} &nbsp;<font color='#9ca3af'>{ts}</font>",
+                label_style,
+            ))
+            content = (
+                (m.content or "")
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\n", "<br/>")
+            )
+            style = internal_style if m.is_internal else body_style
+            story.append(Paragraph(content or "&nbsp;", style))
+            story.append(Spacer(1, 0.12 * inch))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+@router.get("/{conversation_id}/export.csv")
+async def export_conversation_csv(
+    conversation_id: uuid.UUID,
+    include_internal: bool = Query(False),
+    user_id: str = Depends(require_permission("conversations", "view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream a CSV transcript of the conversation."""
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    if include_internal and not await _can_view_internal(user_id, db):
+        include_internal = False
+    conv, msgs = await _load_export_data(conversation_id, tenant.id, db, include_internal)
+    buf = _build_csv(conv, msgs)
+    filename = f"conversation-{conv.id}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{conversation_id}/export.pdf")
+async def export_conversation_pdf(
+    conversation_id: uuid.UUID,
+    include_internal: bool = Query(False),
+    user_id: str = Depends(require_permission("conversations", "view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a PDF transcript of the conversation."""
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    if include_internal and not await _can_view_internal(user_id, db):
+        include_internal = False
+    conv, msgs = await _load_export_data(conversation_id, tenant.id, db, include_internal)
+    pdf_bytes = _build_pdf(conv, msgs)
+    filename = f"conversation-{conv.id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/{conversation_id}/email-transcript", status_code=202)
+async def email_conversation_transcript(
+    conversation_id: uuid.UUID,
+    payload: EmailTranscriptIn,
+    background_tasks: BackgroundTasks,
+    include_internal: bool = Query(False),
+    user_id: str = Depends(require_permission("conversations", "view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Email a PDF transcript to the given address. Silently no-ops if RESEND_API_KEY is unset."""
+    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    if include_internal and not await _can_view_internal(user_id, db):
+        include_internal = False
+    conv, msgs = await _load_export_data(conversation_id, tenant.id, db, include_internal)
+    pdf_bytes = _build_pdf(conv, msgs)
+    background_tasks.add_task(
+        email_service.send_transcript,
+        to_email=payload.to_email,
+        pdf_bytes=pdf_bytes,
+        conversation_id=str(conv.id),
+    )
+    return {"status": "queued", "to_email": payload.to_email}
 

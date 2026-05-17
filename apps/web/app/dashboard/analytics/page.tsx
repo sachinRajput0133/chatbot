@@ -61,6 +61,45 @@ export default function AnalyticsPage() {
           </div>
         ))}
       </div>
+
+      {/* CSAT card */}
+      <div className="bg-white border rounded-xl p-5 mt-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-gray-500 text-xs">Customer Satisfaction (CSAT)</div>
+          <div className="text-xs text-gray-400">{stats.csat_count ?? 0} {stats.csat_count === 1 ? "rating" : "ratings"}</div>
+        </div>
+        {stats.csat_count > 0 ? (
+          <>
+            <div className="flex items-baseline gap-2">
+              <div className="text-3xl font-bold text-indigo-600">
+                {stats.avg_csat?.toFixed(2) ?? "—"}
+              </div>
+              <div className="text-sm text-gray-500">/ 5</div>
+              <div className="text-yellow-500 ml-2">
+                {"★".repeat(Math.round(stats.avg_csat ?? 0))}
+                <span className="text-gray-300">{"★".repeat(5 - Math.round(stats.avg_csat ?? 0))}</span>
+              </div>
+            </div>
+            <div className="mt-3 space-y-1">
+              {[5, 4, 3, 2, 1].map((star) => {
+                const count = stats.csat_distribution?.[String(star)] ?? 0;
+                const pct = stats.csat_count > 0 ? (count / stats.csat_count) * 100 : 0;
+                return (
+                  <div key={star} className="flex items-center gap-2 text-xs">
+                    <span className="w-6 text-gray-500">{star}★</span>
+                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-yellow-400" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-8 text-right text-gray-500">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="text-sm text-gray-400">No ratings collected yet.</div>
+        )}
+      </div>
     </div>
   );
 }

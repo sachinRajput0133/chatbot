@@ -24,6 +24,34 @@ interface ConversationsViewProps {
   embedded?: boolean;
 }
 
+type StatusFilter = "all" | "open" | "pending" | "resolved" | "closed";
+type ConversationStatus = "open" | "pending" | "resolved" | "closed";
+
+const STATUS_STYLES: Record<ConversationStatus, string> = {
+  open: "bg-blue-50 text-blue-600 border-blue-100",
+  pending: "bg-yellow-50 text-yellow-700 border-yellow-100",
+  resolved: "bg-emerald-50 text-emerald-600 border-emerald-100",
+  closed: "bg-slate-100 text-slate-500 border-slate-200",
+};
+
+function StatusPill({ status }: { status?: string }) {
+  const s = (status as ConversationStatus) || "open";
+  const cls = STATUS_STYLES[s] ?? STATUS_STYLES.open;
+  return (
+    <span className={`px-1.5 py-0.5 text-[9px] font-black uppercase rounded border ${cls}`}>
+      {s}
+    </span>
+  );
+}
+
+const FILTER_TABS: { id: StatusFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "open", label: "Open" },
+  { id: "pending", label: "Pending" },
+  { id: "resolved", label: "Resolved" },
+  { id: "closed", label: "Closed" },
+];
+
 export default function ConversationsView({ initialOpenId, embedded = false }: ConversationsViewProps) {
   const router = useRouter();
 
@@ -45,10 +73,28 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
 
   const [agentInput, setAgentInput] = useState("");
   const [sendingAgent, setSendingAgent] = useState(false);
+  const [composerMode, setComposerMode] = useState<"reply" | "note">("reply");
   const [activeTab, setActiveTab] = useState<"conversation" | "timeline">("conversation");
 
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
+  const [transcriptToast, setTranscriptToast] = useState<{ msg: string; kind: "success" | "error" } | null>(null);
+
+  const [rating, setRating] = useState<{ rating: number; comment: string | null; created_at: string } | null>(null);
+
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [assignFilter, setAssignFilter] = useState<"all" | "mine" | "unassigned">("all");
+  const [members, setMembers] = useState<{ id: string; email: string }[]>([]);
+  const [assignMenuOpen, setAssignMenuOpen] = useState(false);
+  const [assigning, setAssigning] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -65,16 +111,30 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
   useEffect(() => {
     // Force body to not scroll to prevent dashboard double scrollbars
     document.body.style.overflow = "hidden";
-    api.me().then(res => setTenant(res.tenant)).catch(() => { });
-    loadPage(1);
+    api.me().then(res => {
+      setTenant(res.tenant);
+      setCurrentUserId(res.user?.id ?? null);
+    }).catch(() => { });
+    api.listMembers().then(setMembers).catch(() => { });
     return () => {
       document.body.style.overflow = "auto";
     };
   }, []);
 
+  useEffect(() => {
+    setLoading(true);
+    loadPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, assignFilter]);
+
   async function loadPage(page: number) {
     try {
-      const res = await api.listConversations(page);
+      const statusParam = statusFilter === "all" ? undefined : statusFilter;
+      const assignParam =
+        assignFilter === "mine" ? "me" :
+        assignFilter === "unassigned" ? "unassigned" :
+        undefined;
+      const res = await api.listConversations(page, statusParam, assignParam);
       if (page === 1) setConversations(res);
       else setConversations(prev => [...prev, ...res]);
       setHasMoreConvs(res.length === 20);
@@ -82,6 +142,46 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
       if ((err as any)?.status === 401) router.push("/login");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function assignTo(userId: string | null) {
+    if (!selected || assigning) return;
+    setAssigning(true);
+    try {
+      const updated = await api.assignConversation(selected.id, userId);
+      setSelected(updated);
+      setConversations(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c));
+      setAssignMenuOpen(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  function memberInitials(email?: string | null): string {
+    if (!email) return "?";
+    return email.slice(0, 2).toUpperCase();
+  }
+
+  async function changeStatus(newStatus: ConversationStatus) {
+    if (!selected || updatingStatus || selected.status === newStatus) return;
+    setUpdatingStatus(true);
+    try {
+      const updated = await api.setConversationStatus(selected.id, newStatus);
+      setSelected(updated);
+      setConversations(prev => {
+        // If filter would now exclude this conversation, remove it from list
+        if (statusFilter !== "all" && updated.status !== statusFilter) {
+          return prev.filter(c => c.id !== updated.id);
+        }
+        return prev.map(c => c.id === updated.id ? { ...c, ...updated } : c);
+      });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setUpdatingStatus(false);
     }
   }
 
@@ -143,6 +243,8 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
     setSelected(conv);
     setMessages([]);
     setMsgLoading(true);
+    setRating(null);
+    api.getConversationRating(conv.id).then(r => setRating(r as any)).catch(() => setRating(null));
     if (!embedded) {
       window.history.replaceState(null, "", `/dashboard/conversations/${conv.id}`);
     }
@@ -171,16 +273,58 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
     } catch (err) { console.error(err); }
   }
 
+  function showTranscriptToast(msg: string, kind: "success" | "error" = "success") {
+    setTranscriptToast({ msg, kind });
+    setTimeout(() => setTranscriptToast(null), 3500);
+  }
+
+  async function handleExportDownload(format: "csv" | "pdf") {
+    if (!selected) return;
+    setExportMenuOpen(false);
+    try {
+      await api.downloadConversationExport(selected.id, format);
+    } catch (err) {
+      console.error(err);
+      showTranscriptToast(`Failed to download ${format.toUpperCase()}`, "error");
+    }
+  }
+
+  function openEmailTranscriptModal() {
+    setExportMenuOpen(false);
+    setEmailInput(selected?.visitor_email || "");
+    setEmailModalOpen(true);
+  }
+
+  async function handleSendTranscriptEmail() {
+    if (!selected || !emailInput.trim() || emailSending) return;
+    setEmailSending(true);
+    try {
+      await api.emailConversationTranscript(selected.id, emailInput.trim());
+      setEmailModalOpen(false);
+      setEmailInput("");
+      showTranscriptToast("Transcript queued for delivery");
+    } catch (err) {
+      console.error(err);
+      showTranscriptToast("Failed to email transcript", "error");
+    } finally {
+      setEmailSending(false);
+    }
+  }
+
   async function handleSendAgent() {
     if (!selected || !agentInput.trim() || sendingAgent) return;
     setSendingAgent(true);
     try {
-      const newMsg = await api.sendAgentReply(selected.id, agentInput);
+      const newMsg = composerMode === "note"
+        ? await api.sendInternalNote(selected.id, agentInput)
+        : await api.sendAgentReply(selected.id, agentInput);
       setAgentInput("");
       setMessages(prev => [...prev, newMsg]);
-      setSelected(prev => prev ? { ...prev, last_message_at: newMsg.created_at } : null);
+      if (composerMode !== "note") {
+        setSelected((prev: any) => prev ? { ...prev, last_message_at: newMsg.created_at } : null);
+      }
       requestAnimationFrame(() => scrollMessagesToBottom(true));
-    } catch (err) { console.error(err); } 
+    } catch (err) { console.error(err); }
     finally { setSendingAgent(false); }
   }
 
@@ -242,7 +386,7 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>keyboard_double_arrow_left</span>
             </button>
           </div>
-          <div className="p-4">
+          <div className="p-4 space-y-3">
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400" style={{ fontSize: 16 }}>search</span>
               <input
@@ -252,6 +396,26 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                 onChange={e => setSearch(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-9 pr-4 py-3 text-xs outline-none focus:border-violet-500 focus:bg-white transition-all placeholder:text-slate-400 font-medium"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={assignFilter}
+                onChange={e => setAssignFilter(e.target.value as typeof assignFilter)}
+                className="flex-1 min-w-0 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-violet-500 focus:bg-white transition-all cursor-pointer"
+              >
+                <option value="all">All conversations</option>
+                <option value="mine">My inbox</option>
+                <option value="unassigned">Unassigned</option>
+              </select>
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value as StatusFilter)}
+                className="flex-1 min-w-0 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-violet-500 focus:bg-white transition-all cursor-pointer"
+              >
+                {FILTER_TABS.map(tab => (
+                  <option key={tab.id} value={tab.id}>{tab.label === "All" ? "Any status" : tab.label}</option>
+                ))}
+              </select>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
@@ -281,7 +445,18 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`} />
-                    <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">{conv.message_count || 0} messages</span>
+                    <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">{conv.message_count || 0} msg</span>
+                    <span className="ml-auto flex items-center gap-1.5">
+                      {conv.assigned_user_id && (
+                        <span
+                          title={`Assigned to ${conv.assigned_user_email || "member"}`}
+                          className="w-4 h-4 rounded-full bg-violet-100 text-violet-700 text-[8px] font-black flex items-center justify-center"
+                        >
+                          {memberInitials(conv.assigned_user_email)}
+                        </span>
+                      )}
+                      <StatusPill status={conv.status} />
+                    </span>
                   </div>
                 </button>
               );
@@ -323,6 +498,7 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                       </h3>
                       <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase rounded border border-emerald-100/50">Live</span>
                       <span className="px-1.5 py-0.5 bg-violet-50 text-violet-600 text-[9px] font-black uppercase rounded border border-violet-100/50">Human Mode</span>
+                      <StatusPill status={selected.status} />
                     </div>
                     <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
                       <span className="truncate max-w-[250px]">{selected.page_url || "http://localhost:3001/dashboard"}</span>
@@ -335,7 +511,88 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                   <div className="text-right hidden xl:block mr-2">
                     <div className="text-[10px] font-black text-slate-300 uppercase tracking-widest leading-none mb-1">4 messages</div>
                   </div>
-                  <button 
+                  <div className="relative">
+                    <button
+                      onClick={() => setAssignMenuOpen(o => !o)}
+                      disabled={assigning}
+                      title="Assign conversation"
+                      className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none cursor-pointer shadow-sm hover:border-violet-300 transition-colors disabled:opacity-60"
+                    >
+                      {selected.assigned_user_id ? (
+                        <>
+                          <span className="w-6 h-6 rounded-full bg-violet-100 text-violet-700 text-[10px] font-black flex items-center justify-center border border-violet-200">
+                            {memberInitials(selected.assigned_user_email)}
+                          </span>
+                          <span className="max-w-[120px] truncate">{selected.assigned_user_email || "Member"}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 18 }}>person_add</span>
+                          <span>Assign</span>
+                        </>
+                      )}
+                      <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 16 }}>expand_more</span>
+                    </button>
+                    {assignMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setAssignMenuOpen(false)} />
+                        <div className="absolute right-0 top-full mt-1 z-20 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
+                          <div className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100">Assign to</div>
+                          <div className="max-h-64 overflow-y-auto custom-scrollbar py-1">
+                            {currentUserId && (
+                              <button
+                                onClick={() => assignTo(currentUserId)}
+                                className="w-full text-left px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-50 flex items-center gap-2"
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person</span>
+                                Me
+                              </button>
+                            )}
+                            {members.length === 0 && (
+                              <div className="px-3 py-2 text-[11px] text-slate-400">No members</div>
+                            )}
+                            {members.map(m => (
+                              <button
+                                key={m.id}
+                                onClick={() => assignTo(m.id)}
+                                className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              >
+                                <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 text-[10px] font-black flex items-center justify-center">
+                                  {memberInitials(m.email)}
+                                </span>
+                                <span className="truncate flex-1">{m.email}</span>
+                                {selected.assigned_user_id === m.id && (
+                                  <span className="material-symbols-outlined text-violet-600" style={{ fontSize: 16 }}>check</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                          {selected.assigned_user_id && (
+                            <button
+                              onClick={() => assignTo(null)}
+                              className="w-full text-left px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 border-t border-slate-100 flex items-center gap-2"
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person_off</span>
+                              Unassign
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <select
+                    value={selected.status || "open"}
+                    onChange={e => changeStatus(e.target.value as ConversationStatus)}
+                    disabled={updatingStatus}
+                    title="Conversation status"
+                    className="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer shadow-sm hover:border-violet-300 focus:border-violet-500 transition-colors disabled:opacity-60"
+                  >
+                    <option value="open">Open</option>
+                    <option value="pending">Pending</option>
+                    <option value="resolved">Resolved</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                  <button
                     onClick={toggleMode}
                     className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-violet-100 outline-none active:scale-95"
                   >
@@ -351,9 +608,46 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                   >
                     <span className="material-symbols-outlined">{rightCollapsed ? "dock_to_left" : "dock_to_right"}</span>
                   </button>
-                  <button className="w-10 h-10 flex items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-xl transition-colors">
-                    <span className="material-symbols-outlined">more_horiz</span>
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setExportMenuOpen(v => !v)}
+                      className="w-10 h-10 flex items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-xl transition-colors"
+                      title="Export transcript"
+                    >
+                      <span className="material-symbols-outlined">more_horiz</span>
+                    </button>
+                    {exportMenuOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={() => setExportMenuOpen(false)}
+                        />
+                        <div className="absolute right-0 top-12 z-50 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
+                          <button
+                            onClick={() => handleExportDownload("csv")}
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 text-left text-xs font-bold text-slate-700"
+                          >
+                            <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 18 }}>table_view</span>
+                            Download as CSV
+                          </button>
+                          <button
+                            onClick={() => handleExportDownload("pdf")}
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 text-left text-xs font-bold text-slate-700 border-t border-slate-50"
+                          >
+                            <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 18 }}>picture_as_pdf</span>
+                            Download as PDF
+                          </button>
+                          <button
+                            onClick={openEmailTranscriptModal}
+                            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-slate-50 text-left text-xs font-bold text-slate-700 border-t border-slate-50"
+                          >
+                            <span className="material-symbols-outlined text-slate-400" style={{ fontSize: 18 }}>mail</span>
+                            Email transcript…
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -397,9 +691,25 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
 
                     {messages.map((msg, i) => {
                       const isUser = msg.role === "user";
-                      const isAgent = msg.role === "agent";
                       const isBot = msg.role === "assistant";
-                      
+                      const isInternal = !!msg.is_internal;
+
+                      if (isInternal) {
+                        return (
+                          <div key={msg.id || i} className="flex justify-center">
+                            <div className="max-w-[80%] w-full bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 shadow-sm">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="material-symbols-outlined text-amber-600" style={{ fontSize: 16 }}>lock</span>
+                                <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">Internal note</span>
+                                <span className="text-[10px] text-amber-500 ml-auto font-bold">Visible to agents only</span>
+                              </div>
+                              <div className="text-[13px] leading-relaxed text-amber-900 whitespace-pre-wrap">{msg.content}</div>
+                              <span className="text-[10px] text-amber-400 mt-2 block font-bold uppercase tracking-wide">{formatTime(msg.created_at)}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       return (
                         <div key={msg.id || i} className={`flex gap-4 ${isUser ? "justify-end" : "justify-start"}`}>
                           {!isUser && (
@@ -446,14 +756,46 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
 
               {/* Input Area */}
               <div className="p-6 bg-white border-t border-slate-50 shrink-0">
-                <div className="max-w-4xl mx-auto">
+                <div className="max-w-4xl mx-auto space-y-3">
+                  {/* Reply / Internal note toggle */}
+                  <div className="inline-flex items-center bg-slate-100 rounded-full p-1 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setComposerMode("reply")}
+                      className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${
+                        composerMode === "reply"
+                          ? "bg-white text-violet-600 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      Reply
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setComposerMode("note")}
+                      className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                        composerMode === "note"
+                          ? "bg-amber-400 text-amber-950 shadow-sm"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>lock</span>
+                      Internal note
+                    </button>
+                  </div>
                   <div className="relative group">
                     <textarea
                       value={agentInput}
                       onChange={e => setAgentInput(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSendAgent())}
-                      placeholder="Type your reply as a human agent..."
-                      className="w-full bg-slate-50 border border-slate-200 rounded-[2rem] px-6 py-5 text-sm outline-none focus:border-violet-500 focus:bg-white transition-all resize-none min-h-[64px] max-h-32 shadow-inner pr-24"
+                      placeholder={composerMode === "note"
+                        ? "Leave a private note for other agents (not visible to the visitor)..."
+                        : "Type your reply as a human agent..."}
+                      className={`w-full border rounded-[2rem] px-6 py-5 text-sm outline-none transition-all resize-none min-h-[64px] max-h-32 shadow-inner pr-24 ${
+                        composerMode === "note"
+                          ? "bg-amber-50 border-amber-200 focus:border-amber-400 focus:bg-amber-50/70 placeholder:text-amber-700/60"
+                          : "bg-slate-50 border-slate-200 focus:border-violet-500 focus:bg-white"
+                      }`}
                     />
                     <div className="absolute left-6 bottom-4 flex items-center gap-1.5">
                       <button className="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded-full transition-all">
@@ -467,15 +809,28 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
                       </button>
                     </div>
                     <div className="absolute right-4 bottom-4 flex items-center gap-2">
-                       <div className="flex items-center overflow-hidden rounded-2xl shadow-lg shadow-violet-100">
-                          <button 
+                       <div className={`flex items-center overflow-hidden rounded-2xl shadow-lg ${
+                         composerMode === "note" ? "shadow-amber-200" : "shadow-violet-100"
+                       }`}>
+                          <button
                             onClick={handleSendAgent}
                             disabled={!agentInput.trim() || sendingAgent}
-                            className="bg-violet-600 text-white px-5 py-3 flex items-center justify-center hover:bg-violet-700 transition-colors disabled:opacity-50"
+                            className={`text-white px-5 py-3 flex items-center justify-center transition-colors disabled:opacity-50 ${
+                              composerMode === "note"
+                                ? "bg-amber-500 hover:bg-amber-600 text-amber-950"
+                                : "bg-violet-600 hover:bg-violet-700"
+                            }`}
+                            title={composerMode === "note" ? "Save internal note" : "Send reply"}
                           >
-                            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>send</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>
+                              {composerMode === "note" ? "lock" : "send"}
+                            </span>
                           </button>
-                          <button className="bg-violet-600 text-white px-2 py-3 flex items-center justify-center hover:bg-violet-700 transition-colors border-l border-violet-500/20">
+                          <button className={`text-white px-2 py-3 flex items-center justify-center transition-colors border-l ${
+                            composerMode === "note"
+                              ? "bg-amber-500 hover:bg-amber-600 text-amber-950 border-amber-600/20"
+                              : "bg-violet-600 hover:bg-violet-700 border-violet-500/20"
+                          }`}>
                             <span className="material-symbols-outlined" style={{ fontSize: 20 }}>keyboard_arrow_down</span>
                           </button>
                        </div>
@@ -502,6 +857,22 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
           </div>
 
           <div className="space-y-8">
+            {rating && (
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-3 block">CSAT Rating</label>
+                <div className="p-4 bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-100 rounded-2xl">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-yellow-500 text-lg leading-none">
+                      {"★".repeat(rating.rating)}<span className="text-gray-300">{"★".repeat(5 - rating.rating)}</span>
+                    </span>
+                    <span className="text-[12px] font-black text-slate-800">{rating.rating}/5</span>
+                  </div>
+                  {rating.comment && (
+                    <p className="text-[11px] text-slate-600 italic mt-1">&ldquo;{rating.comment}&rdquo;</p>
+                  )}
+                </div>
+              </div>
+            )}
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] mb-3 block">Active Page</label>
               <div className="flex items-center gap-2.5 p-4 bg-slate-50 border border-slate-100 rounded-2xl group hover:bg-white hover:shadow-md transition-all cursor-pointer">
@@ -585,6 +956,57 @@ export default function ConversationsView({ initialOpenId, embedded = false }: C
           </div>
         </aside>
       </div>
+
+      {emailModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 mx-4">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Email transcript</h3>
+                <p className="text-[11px] text-slate-400 mt-1">Send a PDF copy of this conversation to an email address.</p>
+              </div>
+              <button
+                onClick={() => setEmailModalOpen(false)}
+                className="w-8 h-8 flex items-center justify-center text-slate-400 hover:bg-slate-50 rounded-lg"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+              </button>
+            </div>
+            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-2">Recipient email</label>
+            <input
+              type="email"
+              value={emailInput}
+              onChange={e => setEmailInput(e.target.value)}
+              placeholder="visitor@example.com"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500 focus:bg-white transition-all placeholder:text-slate-400"
+              autoFocus
+            />
+            <div className="flex items-center justify-end gap-2 mt-6">
+              <button
+                onClick={() => setEmailModalOpen(false)}
+                className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 rounded-xl"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSendTranscriptEmail}
+                disabled={!emailInput.trim() || emailSending}
+                className="px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-violet-100 disabled:opacity-50"
+              >
+                {emailSending ? "Sending…" : "Send transcript"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {transcriptToast && (
+        <div className={`fixed bottom-6 right-6 z-[70] px-5 py-3 rounded-2xl shadow-xl text-xs font-bold ${
+          transcriptToast.kind === "success" ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+        }`}>
+          {transcriptToast.msg}
+        </div>
+      )}
 
       <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {

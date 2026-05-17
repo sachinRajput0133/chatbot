@@ -1,6 +1,6 @@
 """Tenant user management — invite, update role, deactivate. Owner-only."""
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -8,7 +8,7 @@ from app.core.rbac import require_owner
 from app.schemas.user_admin import (
     InviteUserRequest, UpdateUserRequest, UserAdminOut, InviteUserResponse,
 )
-from app.services import user_admin_service, auth_service
+from app.services import user_admin_service, auth_service, audit_service
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -26,17 +26,30 @@ async def list_users(
 async def invite_user(
     data: InviteUserRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
     user_id: str = Depends(require_owner()),
     db: AsyncSession = Depends(get_db),
 ):
     actor, tenant = await auth_service.get_user_with_tenant(user_id, db)
-    return await user_admin_service.invite_user(
+    result = await user_admin_service.invite_user(
         tenant_id=tenant.id,
         inviter_id=actor.id,
         data=data,
         db=db,
         background_tasks=background_tasks,
     )
+    await audit_service.log(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=actor.id,
+        action="member.invite",
+        target_type="user",
+        target_id=result.user.id,
+        metadata={"email": result.user.email, "role_id": data.role_id},
+        request=request,
+    )
+    await db.commit()
+    return result
 
 
 @router.patch("/{target_user_id}", response_model=UserAdminOut)
@@ -59,6 +72,7 @@ async def update_user(
 @router.delete("/{target_user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     target_user_id: str,
+    request: Request,
     user_id: str = Depends(require_owner()),
     db: AsyncSession = Depends(get_db),
 ):
@@ -69,3 +83,13 @@ async def delete_user(
         actor_id=actor.id,
         db=db,
     )
+    await audit_service.log(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=actor.id,
+        action="member.remove",
+        target_type="user",
+        target_id=target_user_id,
+        request=request,
+    )
+    await db.commit()

@@ -12,7 +12,7 @@ from app.schemas.billing import (
     VerifyRazorpayRequest,
     VerifyDodoRequest,
 )
-from app.services import auth_service, billing_service
+from app.services import auth_service, billing_service, audit_service
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
@@ -49,11 +49,23 @@ async def get_subscription(
 
 @router.post("/cancel")
 async def cancel_subscription(
+    request: Request,
     user_id: str = Depends(require_permission("billing", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    actor, tenant = await auth_service.get_user_with_tenant(user_id, db)
     await billing_service.cancel_subscription(tenant, db)
+    await audit_service.log(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=actor.id,
+        action="billing.plan_change",
+        target_type="subscription",
+        target_id=str(tenant.id),
+        metadata={"event": "cancel"},
+        request=request,
+    )
+    await db.commit()
     return {"status": "ok"}
 
 
@@ -62,11 +74,23 @@ async def cancel_subscription(
 @router.post("/verify-razorpay")
 async def verify_razorpay_payment(
     data: VerifyRazorpayRequest,
+    request: Request,
     user_id: str = Depends(require_permission("billing", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
-    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    actor, tenant = await auth_service.get_user_with_tenant(user_id, db)
     await billing_service.verify_and_activate_razorpay(tenant, data, db)
+    await audit_service.log(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=actor.id,
+        action="billing.plan_change",
+        target_type="subscription",
+        target_id=str(tenant.id),
+        metadata={"event": "activate", "gateway": "razorpay", "plan": data.plan},
+        request=request,
+    )
+    await db.commit()
     return {"status": "ok", "plan": data.plan}
 
 
@@ -86,6 +110,7 @@ async def razorpay_webhook(
 @router.post("/verify-dodo")
 async def verify_dodo_payment(
     data: VerifyDodoRequest,
+    request: Request,
     user_id: str = Depends(require_permission("billing", "manage")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -93,8 +118,19 @@ async def verify_dodo_payment(
     Called when Dodo redirects back to /dashboard/billing?success=true&gateway=dodo.
     Frontend passes payment_id and subscription_id from the URL query params.
     """
-    _, tenant = await auth_service.get_user_with_tenant(user_id, db)
+    actor, tenant = await auth_service.get_user_with_tenant(user_id, db)
     await billing_service.verify_and_activate_dodo(tenant, data, db)
+    await audit_service.log(
+        db,
+        tenant_id=tenant.id,
+        actor_user_id=actor.id,
+        action="billing.plan_change",
+        target_type="subscription",
+        target_id=str(tenant.id),
+        metadata={"event": "activate", "gateway": "dodo", "plan": data.plan},
+        request=request,
+    )
+    await db.commit()
     return {"status": "ok", "plan": data.plan}
 
 

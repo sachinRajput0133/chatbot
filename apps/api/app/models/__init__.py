@@ -8,8 +8,11 @@ from .subscription import Subscription, SubscriptionStatus, PaymentGateway
 from .lead_capture import LeadCaptureConfig
 from app.models.goal import GoalConfig, GoalCompletion
 from app.models.api_key import ApiKey
+from app.models.audit_log import AuditLog
+from app.models.conversation_rating import ConversationRating
 
 __all__ = [
+    "ConversationRating",
     "Tenant", "Plan",
     "User", "UserRole",
     "Role", "RolePermission",
@@ -20,4 +23,5 @@ __all__ = [
     "LeadCaptureConfig",
     "GoalConfig", "GoalCompletion",
     "ApiKey",
+    "AuditLog",
 ]

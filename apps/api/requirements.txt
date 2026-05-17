@@ -24,6 +24,9 @@ google-generativeai==0.8.3
 pdfplumber==0.11.4
 python-docx==1.1.2
 
+# PDF generation (conversation transcripts)
+reportlab==4.2.5
+
 # Task queue
 celery==5.4.0
 redis==5.0.8
